@@ -1,102 +1,103 @@
-# 💬 WhatsApp Gateway — Anti-Ban System
+# WhatsApp Gateway (Powered by whatsapp-web.js)
 
-A robust, self-hosted WhatsApp Gateway designed for ISP Billing Systems (Laravel) to send bulk broadcast messages and invoices without getting banned.
+Sebuah API dan Dashboard Manajemen WhatsApp Gateway berbasis Puppeteer untuk sinkronisasi kontak, live chat, dan pengiriman pesan (campaign).
 
-## 🌟 Key Features
-
-- **Multi-Session Architecture:** Connect multiple WhatsApp accounts simultaneously.
-- **Round-Robin Rotation:** Automatically distributes outgoing messages evenly across all connected accounts.
-- **Anti-Ban Jitter Engine:** Applies a dynamic, randomized delay (20s - 90s) between messages.
-- **Batch Resting:** Simulates human behavior by "resting" for 10-20 minutes after sending a batch of messages.
-- **Typing Simulation:** Displays the "typing..." status before sending a message.
-- **Daily Limits:** Enforces a maximum limit (e.g., 200 messages/day per number) to avoid spam flags.
-- **Laravel Auto-Sync:** Automatically pulls active customer contacts from the `laravel_radius` database.
-- **Opt-Out Handler:** Detects keywords like "STOP", "BERHENTI", "UNSUBSCRIBE" and blacklists the number from future broadcasts.
-- **Sleek Admin Dashboard:** Built-in SPA (Single Page Application) for managing sessions, scanning QR codes, and tracking campaigns.
-
-## 🛠 Tech Stack
-
-- **Backend:** Node.js, Express.js, TypeScript
-- **WhatsApp Library:** `@whiskeysockets/baileys`
-- **Database:** MySQL (Primary storage)
-- **Queue Engine:** BullMQ & Redis (Memurai for Windows)
-- **Frontend:** Vanilla HTML/CSS/JS (Zero framework, ultra-fast)
+## Persyaratan Sistem
+- Node.js (v18 atau terbaru)
+- MySQL / MariaDB
+- RAM Server minimal 1GB (Disarankan 2GB ke atas)
+- (Ubuntu/Linux Server) Akses ROOT / Sudo untuk instalasi dependensi Puppeteer.
 
 ---
 
-## 🚀 Installation & Setup
+## 🚀 Panduan Instalasi (Development / Lokal)
 
-### Prerequisites
-1. **Node.js** (v18 or higher)
-2. **MySQL Server** (XAMPP / native)
-3. **Redis** (Install **[Memurai](https://www.memurai.com/get-memurai)** for Windows)
+1. **Persiapkan Database**
+   Buat database baru di MySQL dengan nama `whatsapp_gateway` (atau sesuai konfigurasi lama Anda).
 
-### 1. Clone & Install
-```bash
-git clone <your-repo>
-cd Whatsapps-Gateway
-npm install
-```
+2. **Clone / Ekstrak Repository**
+   Ekstrak *source code* ini ke dalam folder tujuan Anda.
 
-### 2. Environment Configuration
-Copy the `.env.example` file to `.env`:
-```bash
-cp .env.example .env
-```
-Ensure your `DB_DATABASE` (default: `whatsapp_gateway`) exists. If you want Laravel Sync to work, ensure `LARAVEL_DB_DATABASE` matches your Laravel database name (default: `laravel_radius`).
+3. **Install Dependensi**
+   Buka terminal di dalam folder proyek, lalu jalankan:
+   ```bash
+   npm install
+   ```
 
-### 3. Database Migration
-Run the automated table creation script:
-```bash
-npm run migrate
-```
+4. **Konfigurasi Lingkungan (.env)**
+   Buat atau ubah file `.env` di direktori utama Anda dan sesuaikan dengan koneksi database:
+   ```env
+   APP_PORT=3100
+   DB_HOST=127.0.0.1
+   DB_USER=root
+   DB_PASSWORD=
+   DB_NAME=whatsapp_gateway
+   ```
 
-### 4. Run Development Server
-```bash
-npm run dev
-```
-The Dashboard will be accessible at: **http://localhost:3100**
+5. **Jalankan Aplikasi**
+   ```bash
+   npm run dev
+   ```
+   Aplikasi dan Dashboard Anda sekarang dapat diakses di `http://localhost:3100`.
 
 ---
 
-## 🔗 Laravel Integration
+## 🐧 Panduan Deploy ke Ubuntu Server (Production)
 
-To connect your existing Laravel application to this Gateway, simply update your Laravel `.env`:
+WhatsApp Web versi terbaru (whatsapp-web.js) menggunakan mesin browser Chromium secara *headless* (berjalan di balik layar). Secara default, sistem operasi Ubuntu Server polos tidak memiliki perangkat lunak pendukung grafis (GUI) yang memadai. Anda **wajib** menginstal pustaka-pustaka Linux berikut agar Chromium tidak *crash* saat dijalankan oleh Node.js.
 
-```env
-WA_GATEWAY_URL=http://localhost:3100/api
-WA_GATEWAY_KEY=dev-wa-gateway-key-2026
+### Langkah 1: Install Dependensi Puppeteer (Wajib)
+Jalankan perintah ini di terminal Ubuntu Anda:
+```bash
+sudo apt update
+sudo apt install -y gconf-service libgbm-dev libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils wget
 ```
 
-In your Laravel database, add or update a Gateway record with the provider set to `self_hosted`. Your `WhatsAppService.php` will automatically detect this and forward all outgoing messages to the new Anti-Ban Queue.
-
----
-
-## 📦 Production Deployment (PM2)
-
-For 24/7 background operation, use PM2:
-
+### Langkah 2: Konfigurasi PM2
+Gunakan PM2 agar aplikasi dapat berjalan 24 jam nonstop dan otomatis menyala kembali jika server mengalami *reboot*. Jika belum memiliki PM2:
 ```bash
-# Compile TypeScript to JavaScript
-npm run build
+sudo npm install -g pm2
+```
 
-# Start with PM2 using ecosystem file
+Buat file bernama `ecosystem.config.js` di dalam folder aplikasi Anda yang berisi konfigurasi berikut:
+```javascript
+module.exports = {
+  apps : [{
+    name: 'wa-gateway',
+    script: 'npm',
+    args: 'run start', // Atau 'run dev' jika belum Anda build (ts-node)
+    watch: false,      // PENTING: Jangan aktifkan watch agar PM2 tidak restart terus menerus
+    ignore_watch: ['node_modules', 'wa_auth', 'logs', '*.log'],
+    max_memory_restart: '1G',
+    env: {
+      NODE_ENV: 'production'
+    }
+  }]
+};
+```
+> **PERINGATAN KRITIKAL:** WhatsApp terus-menerus menulis file cache ke dalam direktori `wa_auth/`. Jika Anda menjalankan PM2 dengan perintah `pm2 start --watch` tanpa atribut pengecualian direktori, PM2 akan mendeteksi penulisan file ini sebagai "perubahan sistem" dan akan me-restart server secara tiada henti. Hal ini menyebabkan WhatsApp gagal *sync*. Selalu gunakan skrip `ecosystem.config.js` di atas.
+
+### Langkah 3: Menjalankan Aplikasi dengan PM2
+```bash
 pm2 start ecosystem.config.js
-
-# Setup PM2 to start on boot
 pm2 save
 pm2 startup
 ```
 
-## 🔐 API Endpoints (For Third-Party Integrations)
-
-*All requests must include the Header: `X-API-Key: <your-api-key>`*
-
-- `POST /api/send` - Queue a single message
-- `POST /api/send-bulk` - Queue multiple messages
-- `GET /api/sessions` - List active sessions
-- `POST /api/sessions` - Create a new session
-- `POST /api/campaigns` - Create a broadcast campaign
+Untuk melihat proses berjalannya mesin WhatsApp atau mencari tahu letak error jika gagal terkoneksi:
+```bash
+pm2 logs wa-gateway
+```
 
 ---
-*Built with ❤️ for SahabatIT*
+
+## 🛠 Fitur & Panduan Maintenance
+
+- **Tombol Sinkronisasi Cerdas:** 
+  Sinkronisasi kontak sekarang beroperasi secara langsung ke browser tanpa perlu melakukan *restart* koneksi. Pastikan untuk menunggu **1 hingga 2 menit** setelah aplikasi berhasil terkoneksi (`ready`) sebelum Anda menekan tombol "Sync WhatsApp" di Web Dashboard. Hal ini sangat penting untuk memberi waktu bagi Chrome mendownload buku telepon dari HP secara *background*.
+- **Membersihkan Sisa Format Baileys:** 
+  Bila terjadi format data yang dobel atau penumpukan angka "topeng" WhatsApp (`@lid`), sangat disarankan untuk mereset seluruh kontak dan *cache* riwayat Live Chat dengan skrip yang telah tersedia:
+  ```bash
+  npx ts-node clean_data.ts
+  ```
+  (Pastikan server dalam keadaan dimatikan sementara saat menjalankan skrip ini, kemudian buka Dashboard dan lakukan Sinkronisasi Ulang).
