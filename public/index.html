@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WA Gateway - TEST SYNC 2026</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <i class="fa-brands fa-whatsapp"></i>
+      <span>WA Gateway</span>
+    </div>
+    <ul class="nav-menu">
+      <li><a href="#" class="nav-link active" data-view="sessions"><i class="fa-solid fa-mobile-screen"></i> Sesi &
+          Perangkat</a></li>
+      <li><a href="#" class="nav-link" data-view="contacts"><i class="fa-solid fa-user"></i> Kontak Pribadi</a></li>
+      <li><a href="#" class="nav-link" data-view="groups"><i class="fa-solid fa-users-rectangle"></i> Daftar Grup</a></li>
+      <li><a href="#" class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</a></li>
+      <li><a href="#" class="nav-link" data-view="live-chat"><i class="fa-solid fa-comments"></i> Live Chat <span
+            class="badge" id="chat-badge"
+            style="display:none; background:var(--primary-color); padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; margin-left: 5px;">New</span></a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- VIEW: SESSIONS -->
+    <section id="view-sessions" class="view-section active">
+      <div class="header">
+        <h1>Sesi WhatsApp</h1>
+        <button class="btn btn-primary" onclick="openModal('modal-add-session')">
+          <i class="fa-solid fa-plus"></i> Tambah Nomor
+        </button>
+        <button class="btn btn-nuclear" onclick="hardResetAllData()">
+          <i class="fa-solid fa-radiation"></i> Reset Database
+        </button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-title">Total Sesi Aktif</div>
+          <div class="stat-value text-primary" id="stat-sessions-active">...</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Pesan Terkirim Hari Ini</div>
+          <div class="stat-value" id="stat-messages-today">...</div>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Perangkat</th>
+              <th>Nomor HP</th>
+              <th>Status</th>
+              <th>Limit Harian</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="sessions-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VIEW: CONTACTS -->
+    <section id="view-contacts" class="view-section">
+      <div class="header">
+        <h1>Manajemen Kontak</h1>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..." onkeyup="filterContacts()" style="width: 250px; margin-bottom: 0;">
+          <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
+            <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
+          </button>
+          <button class="btn btn-primary" id="btn-sync" onclick="syncLaravel()">
+            <i class="fa-solid fa-rotate"></i> Sync Data
+          </button>
+        </div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Pelanggan</th>
+              <th>Nomor WA</th>
+              <th>Status</th>
+              <th>Sumber</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VIEW: GROUPS -->
+    <section id="view-groups" class="view-section">
+      <div class="header">
+        <h1>Manajemen Grup</h1>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="text" id="search-groups" class="form-control" placeholder="Cari nama grup..." onkeyup="filterGroups()" style="width: 250px; margin-bottom: 0;">
+          <button class="btn btn-outline" onclick="syncWhatsApp()">
+            <i class="fa-solid fa-rotate"></i> Sync WhatsApp
+          </button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Grup</th>
+              <th>JID Grup</th>
+              <th>Status</th>
+              <th>Sumber</th>
+            </tr>
+          </thead>
+          <tbody id="groups-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VIEW: CAMPAIGNS -->
+    <section id="view-campaigns" class="view-section">
+      <div class="header">
+        <h1>Broadcast Campaigns</h1>
+        <button class="btn btn-primary" onclick="openCampaignModal()">
+          <i class="fa-solid fa-paper-plane"></i> Buat Campaign
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Campaign</th>
+              <th>Status</th>
+              <th>Target</th>
+              <th>Terkirim</th>
+              <th>Progress</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="campaigns-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VIEW: LIVE CHAT -->
+    <section id="view-live-chat" class="view-section">
+      <div class="header">
+        <h1>Live Chat (CS)</h1>
+        <p class="text-muted">Balas pesan pelanggan secara instan tanpa antrean broadcast</p>
+      </div>
+
+      <div class="chat-container">
+        <!-- Sidebar Kiri: Daftar Chat -->
+        <div class="chat-sidebar">
+          <div class="chat-header" style="display: flex; justify-content: space-between; align-items: center; padding: 15px;">
+            <h3 style="margin:0">Chats</h3>
+            <button class="btn btn-outline" id="btn-sync-chat" onclick="syncWhatsApp()" title="Sync Chat History">
+              <i class="fa-solid fa-rotate"></i>
+            </button>
+          </div>
+          <div id="chat-sidebar-list" class="chat-sidebar-list">
+            <div style="padding: 20px; text-align: center; color: var(--text-muted)">Memuat obrolan...</div>
+          </div>
+        </div>
+
+        <!-- Area Kanan: Jendela Obrolan -->
+        <div class="chat-area" id="chat-area" style="display: none;">
+          <div class="chat-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 id="active-chat-phone" style="margin:0">...</h3>
+            <button class="btn btn-sm btn-outline" onclick="clearChatHistory()" title="Hapus Riwayat" style="color: var(--danger)">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </div>
+          <div class="chat-history" id="chat-history">
+            <!-- Chat bubbles go here -->
+          </div>
+          <div class="chat-input-area">
+            <form onsubmit="sendChatReply(event)" style="display: flex; gap: 10px; width: 100%">
+              <input type="text" id="chat-reply-input" class="form-control" placeholder="Ketik balasan..." required
+                autocomplete="off" />
+              <button type="submit" class="btn btn-primary" id="btn-send-reply"><i
+                  class="fa-solid fa-paper-plane"></i></button>
+            </form>
+          </div>
+        </div>
+
+        <div class="chat-area empty-chat" id="empty-chat-area">
+          <i class="fa-solid fa-comments" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+          <p class="text-muted">Pilih percakapan untuk mulai membalas</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODALS -->
+  <div id="modal-add-session" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Tambah Nomor WA</h2>
+        <button class="close-btn" onclick="closeModal('modal-add-session')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="createSession(event)">
+        <div class="form-group">
+          <label>Nama Perangkat (Misal: Admin Pusat)</label>
+          <input type="text" id="session-name" class="form-control" required placeholder="Masukkan nama..." />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Buat & Generate QR</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-qr" class="modal-overlay">
+    <div class="modal" style="text-align: center;">
+      <div class="modal-header">
+        <h2>Scan QR Code</h2>
+        <button class="close-btn" onclick="closeModal('modal-qr')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="qr-image-container" class="qr-container">
+        <!-- QR Image here -->
+      </div>
+      <p id="qr-status" class="text-muted">Menunggu QR...</p>
+    </div>
+  </div>
+
+  <div id="modal-add-campaign" class="modal-overlay">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2>Buat Broadcast Baru</h2>
+        <button class="close-btn" onclick="closeModal('modal-add-campaign')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="createCampaign(event)">
+        <div class="form-group">
+          <label>Nama Campaign</label>
+          <input type="text" id="campaign-name" class="form-control" required placeholder="Misal: Promo Merdeka 2026" />
+        </div>
+        <div class="form-group">
+          <label>Target Kontak</label>
+          <select id="campaign-target" class="form-control" required>
+            <option value="all">Semua Kontak di Gateway</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Pesan Broadcast (Gunakan {nama} untuk memanggil nama kontak)</label>
+          <textarea id="campaign-message" class="form-control" required
+            placeholder="Halo {nama}, tagihan Anda bulan ini..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan Campaign</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Sync Loading Overlay -->
+  <div id="sync-overlay" class="sync-overlay" style="display: none;">
+    <div class="sync-card">
+      <div class="sync-spinner"></div>
+      <h3>Sinkronisasi Sedang Berjalan</h3>
+      <p id="sync-progress-msg">Mohon tunggu, sistem sedang menarik data dari HP Anda...</p>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script>
+    const API_BASE = '/api';
+    const API_KEY = 'dev-wa-gateway-key-2026';
+    const wa_api = {
+      async fetch(endpoint, options = {}) {
+        const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, ...(options.headers || {}) };
+        try {
+          const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || 'API request failed');
+          return data;
+        } catch (err) { console.error(`API Error:`, err); throw err; }
+      },
+      sessions: {
+        list: () => wa_api.fetch('/sessions'),
+        create: (name) => wa_api.fetch('/sessions', { method: 'POST', body: JSON.stringify({ name }) }),
+        connect: (id) => wa_api.fetch(`/sessions/${id}/connect`, { method: 'POST' }),
+        delete: (id) => wa_api.fetch(`/sessions/${id}`, { method: 'DELETE' }),
+        restart: (id) => wa_api.fetch(`/sessions/${id}/restart`, { method: 'POST' }),
+        syncAll: () => wa_api.fetch('/sessions/sync-all-contacts', { method: 'POST' }),
+        clearData: (id) => wa_api.fetch(`/sessions/${id}/clear-data`, { method: 'POST' }),
+        resetAllData: () => wa_api.fetch('/sessions/reset-all-data', { method: 'POST' })
+      },
+      contacts: {
+        list: (params = {}) => {
+          const limit = params.limit || 100;
+          return wa_api.fetch(`/contacts?limit=${limit}`);
+        },
+        listGroups: () => wa_api.fetch('/contacts/groups'),
+        syncLaravel: () => wa_api.fetch('/contacts/sync-laravel', { method: 'POST' }),
+        delete: (id) => wa_api.fetch(`/contacts/${id}`, { method: 'DELETE' })
+      },
+      chats: {
+        list: () => wa_api.fetch('/chats'),
+        getHistory: (phone) => wa_api.fetch(`/chats/${phone}`),
+        sendReply: (phone, message) => wa_api.fetch(`/chats/${phone}`, { method: 'POST', body: JSON.stringify({ message }) }),
+        deleteMessage: (id) => wa_api.fetch(`/chats/message/${id}`, { method: 'DELETE' }),
+        clearHistory: (phone) => wa_api.fetch(`/chats/history/${phone}`, { method: 'DELETE' })
+      }
+    };
+  </script>
+  <script src="/js/app.js?v=1.4"></script>
+</body>
+
+</html>

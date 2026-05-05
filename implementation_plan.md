@@ -429,18 +429,18 @@ WA Gateway bisa pull data kontak dari tabel `customers` di database `laravel_rad
 
 ## 10. Antrian Pengerjaan (Task Queue)
 
-### Phase 1 — Project Setup & Database *(Hari 1)*
+### Phase 1 — Project Setup & Database *(Hari 1)* ✅ SELESAI
 
 | # | Task | Detail | Status |
 |---|------|--------|--------|
-| 1.1 | Init project Node.js + TypeScript | `package.json`, `tsconfig.json`, ESLint | ⬜ |
-| 1.2 | Install dependencies | baileys, bullmq, express, mysql2, ioredis, uuid | ⬜ |
-| 1.3 | Setup environment config | `.env.example`, config loader, validasi | ⬜ |
-| 1.4 | Setup koneksi MySQL | Connection pool dengan `mysql2/promise` | ⬜ |
-| 1.5 | Setup koneksi Redis | ioredis connection | ⬜ |
-| 1.6 | Buat tabel MySQL | Jalankan semua CREATE TABLE dari schema | ⬜ |
-| 1.7 | Setup Express server | Entry point, middleware, CORS, error handler | ⬜ |
-| 1.8 | Setup API Key middleware | Auth middleware untuk proteksi endpoint | ⬜ |
+| 1.1 | Init project Node.js + TypeScript | `package.json`, `tsconfig.json` | ✅ |
+| 1.2 | Install dependencies | baileys, bullmq, express, mysql2, ioredis, uuid, winston | ✅ |
+| 1.3 | Setup environment config | `.env`, `.env.example`, `src/config/env.ts` | ✅ |
+| 1.4 | Setup koneksi MySQL | `src/config/database.ts` — dual pool (gateway + laravel) | ✅ |
+| 1.5 | Setup koneksi Redis | `src/config/redis.ts` — BullMQ-compatible | ✅ |
+| 1.6 | Buat tabel MySQL | `src/database/migrate.ts` — 6 tabel | ✅ |
+| 1.7 | Setup Express server | `src/index.ts` — routes, middleware, health, graceful shutdown | ✅ |
+| 1.8 | Setup API Key middleware | `src/api/middleware/apiKey.ts` | ✅ |
 
 ---
 

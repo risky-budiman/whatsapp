@@ -11,7 +11,7 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
     return next();
   }
 
-  const apiKey = req.headers['x-api-key'] as string;
+  const apiKey = (req.headers['x-api-key'] as string) || (req.query.api_key as string);
 
   if (!apiKey) {
     res.status(401).json({

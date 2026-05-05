@@ -4,3 +4,5 @@ auth_sessions/
 logs/
 *.log
 .env
+wa_auth/
+.wwebjs_cache/
