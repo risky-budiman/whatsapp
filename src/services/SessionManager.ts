@@ -81,10 +81,9 @@ export class SessionManager extends EventEmitter {
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-extensions',
+            '--disable-software-rasterizer'
           ]
         }
       });
@@ -292,6 +291,20 @@ export class SessionManager extends EventEmitter {
       .sort((a, b) => a.info.dailySentCount - b.info.dailySentCount);
 
     return activeSessions.length > 0 ? activeSessions[0].info : null;
+  }
+
+  async markAsRead(sessionId: string, chatId: string, messageIds?: string[]): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (!active || active.info.status !== 'active') return;
+    
+    try {
+      const chat = await active.client.getChatById(chatId);
+      if (chat) {
+        await chat.sendSeen();
+      }
+    } catch (e) {
+      logger.warn(`[markAsRead] Failed: ${e}`);
+    }
   }
 }
 

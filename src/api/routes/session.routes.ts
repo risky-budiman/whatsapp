@@ -152,7 +152,7 @@ router.get('/:id/qr-image', async (req: Request, res: Response) => {
       return;
     }
 
-    const qrDataUrl = await QRCode.toDataURL(session.info.qr, { version: 15, errorCorrectionLevel: 'L', width: 300, margin: 2 });
+    const qrDataUrl = await QRCode.toDataURL(session.info.qr, { version: 15, errorCorrectionLevel: 'L', width: 300, margin: 2 } as any);
     res.json({ success: true, qr: qrDataUrl, status: session.info.status });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -184,7 +184,6 @@ router.get('/:id/status', async (req: Request, res: Response) => {
       data: {
         ...session.info,
         live: true,
-        retryCount: session.retryCount,
       },
     });
   } catch (err: any) {
@@ -221,7 +220,7 @@ router.post('/:id/connect', async (req: Request, res: Response) => {
     }
 
     logger.info(`🔄 [RE-CONNECT] User manually triggered reconnection for session: ${id}`);
-    await sm.connectSession(id, sessionData.name, true);
+    await sm.connectSession(id, sessionData.name);
     res.json({ success: true, message: 'Re-connection started' });
   } catch (err: any) {
     logger.error(`POST /sessions/:id/connect error: ${err.message}`);
