@@ -489,9 +489,9 @@ function renderLiveChat() {
       const isSelected = activeChatPhone === c.phone_number ? 'active' : '';
       const icon = c.is_from_me ? '<i class="fa-solid fa-check-double" style="color: var(--primary)"></i>' : '';
       
-      // Use resolved display_phone from backend if available
-      const cleanPhone = c.display_phone.split('@')[0];
-      const displayName = c.contact_name ? `${c.contact_name} (${cleanPhone})` : cleanPhone;
+      // Clean up display name to avoid duplicates like "6098.. (6098..)"
+      const cleanPhone = c.display_phone ? c.display_phone.split('@')[0] : c.raw_jid.split('@')[0];
+      const displayName = (c.contact_name && c.contact_name !== cleanPhone) ? c.contact_name : cleanPhone;
       
       html += `
         <div class="chat-sidebar-item ${isSelected}" onclick="openChatHistory('${c.raw_jid}', '${c.contact_name || ''}', '${c.display_phone}')">
@@ -512,7 +512,7 @@ function openChatHistory(phone, nameStr, displayPhone) {
   document.getElementById('chat-area').style.display = 'flex';
   
   const cleanPhone = (displayPhone || phone).split('@')[0];
-  const displayName = nameStr ? `${nameStr} (${cleanPhone})` : cleanPhone;
+  const displayName = (nameStr && nameStr !== cleanPhone) ? nameStr : cleanPhone;
   document.getElementById('active-chat-phone').innerText = displayName;
   
   // Highlight active chat in sidebar

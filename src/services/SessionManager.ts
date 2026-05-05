@@ -141,25 +141,49 @@ export class SessionManager extends EventEmitter {
         this.emit('connected', { sessionId, phoneNumber: fullJid });
         logger.info(`✅ [${name}] 'connected' event emitted!`);
 
-        // Sync contacts (whatsapp-web.js requires manual pull)
+        // Sync contacts, groups, and history
         try {
-          logger.info(`[SYNC] Menarik daftar kontak dari WhatsApp...`);
+          logger.info(`[SYNC] Menarik daftar kontak & grup dari WhatsApp...`);
           const contacts = await client.getContacts();
           const validContacts = contacts.filter((c: any) => 
             c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
           );
+
+          const chats = await client.getChats();
+          const groups = chats.filter((c: any) => c.isGroup);
           
-          this.emit('contacts.received', { 
-            sessionId, 
-            contacts: validContacts.map((c: any) => ({
+          const allSync = [
+            ...validContacts.map((c: any) => ({
               id: c.id._serialized,
               name: c.name || c.pushname || c.id.user,
               phone: c.id.user,
+            })),
+            ...groups.map((c: any) => ({
+              id: c.id._serialized,
+              name: c.name || c.id.user,
+              phone: c.id.user,
             }))
-          });
-          logger.info(`[SYNC] Berhasil menarik ${validContacts.length} kontak.`);
+          ];
+
+          this.emit('contacts.received', { sessionId, contacts: allSync });
+          logger.info(`[SYNC] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
+
+          // Sync recent messages for Live Chat
+          logger.info(`[SYNC] Menarik riwayat obrolan (Live Chat)...`);
+          let allMessages: any[] = [];
+          const recentChats = chats.slice(0, 20); // Top 20 recent chats
+          for (const chat of recentChats) {
+            try {
+              const msgs = await chat.fetchMessages({ limit: 15 });
+              allMessages.push(...msgs);
+            } catch (e) {}
+          }
+          this.emit('history.received', { sessionId, messages: allMessages });
+
+          // Signal frontend to close modal
+          this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
         } catch (e) {
-          logger.warn(`[SYNC] Gagal menarik kontak: ${e}`);
+          logger.warn(`[SYNC] Gagal: ${e}`);
         }
       });
 
@@ -180,14 +204,20 @@ export class SessionManager extends EventEmitter {
         await this.updateSessionDb(sessionId, { status: 'disconnected' });
       });
 
-      client.on('message', async (msg: Message) => {
+      client.on('message', async (msg: any) => {
         if (msg.from === 'status@broadcast') return;
         
+        let pushName = 'User';
+        try {
+          const contact = await msg.getContact();
+          pushName = contact.name || contact.pushname || contact.number || 'User';
+        } catch (e) {}
+
         this.emit('message.received', {
           sessionId,
           from: msg.from,
           messageId: msg.id.id,
-          pushName: msg.author || 'User',
+          pushName,
           text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
         });
       });
@@ -272,7 +302,12 @@ export class SessionManager extends EventEmitter {
       throw new Error('Session not active');
     }
     
-    const chatId = to.includes('@') ? to : `${to}@c.us`;
+    // Use native @c.us format
+    let chatId = to;
+    if (!chatId.includes('@')) {
+      chatId = `${chatId}@c.us`;
+    }
+
     const result = await active.client.sendMessage(chatId, text);
     
     // Update daily count

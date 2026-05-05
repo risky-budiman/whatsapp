@@ -22,13 +22,13 @@ router.get('/', async (req: Request, res: Response) => {
         wc.source,
         wc.created_at
       FROM wa_contacts wc
-      WHERE wc.phone_number LIKE '%@s.whatsapp.net' 
+      WHERE wc.phone_number LIKE '%@c.us' AND wc.source IN ('device_sync', 'manual', 'import')
       ORDER BY wc.created_at DESC 
       LIMIT ? OFFSET ?`,
       [limit, offset]
     );
 
-    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@s.whatsapp.net'");
+    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@c.us' AND source IN ('device_sync', 'manual', 'import')");
     const total = (countRows as any[])[0].total;
 
     res.json({ success: true, data: rows, meta: { total, limit, offset } });

@@ -146,6 +146,7 @@ async function start() {
             await Promise.all(batch.map(async (contact: any) => {
               const phoneNumber = contact.phone || contact.id?.split('@')[0] || '';
               const contactName = contact.name || phoneNumber;
+              // Use native format directly
               const fullId = contact.id || `${phoneNumber}@c.us`;
 
               if (!phoneNumber) return;
@@ -155,7 +156,7 @@ async function start() {
                 VALUES (?, ?, ?, ?, 'device_sync')
                 ON DUPLICATE KEY UPDATE 
                   session_id = VALUES(session_id),
-                  name = IF(name IS NULL OR name = '' OR name = phone_number, VALUES(name), name),
+                  name = IF(VALUES(name) != VALUES(phone_number), VALUES(name), name),
                   phone_number = VALUES(phone_number),
                   updated_at = CURRENT_TIMESTAMP
               `, [uuidv4(), data.sessionId, fullId, contactName]);
@@ -178,31 +179,16 @@ async function start() {
           
           let savedCount = 0;
           for (const msg of messages) {
-            if (!msg.message) continue;
+            if (!msg.id) continue;
             
-            const jid = msg.key.remoteJid;
+            // In whatsapp-web.js, msg.from is the chat ID (could be fromMe=true, so it's our own number sometimes, but the 'chat' is the 'to')
+            const jid = msg.fromMe ? msg.to : msg.from;
             if (!jid || jid === 'status@broadcast' || jid.endsWith('@newsletter')) continue;
 
-            const text = msg.message.conversation || 
-                         msg.message.extendedTextMessage?.text || 
-                         msg.message.imageMessage?.caption ||
-                         msg.message.videoMessage?.caption ||
-                         msg.message.documentMessage?.caption ||
-                         '';
+            const text = msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]');
 
-            // Preserve group JID, only split LID/legacy if necessary
-            let cleanJid = jid.endsWith('@g.us') ? jid : jid.split(':')[0].split('@')[0] + '@' + jid.split('@')[1];
-            
-            // Resolve LID if necessary
-            if (cleanJid.endsWith('@lid')) {
-              const [rows]: any = await db.query('SELECT phone_number FROM wa_jid_mappings WHERE jid = ?', [cleanJid]);
-              if (rows && rows.length > 0) {
-                cleanJid = `${rows[0].phone_number}@s.whatsapp.net`;
-              }
-            }
-
-            // Log a sample message to verify sync
-            if (savedCount === 0) logger.info(`📥 [DEBUG] Contoh pesan riwayat: ${text.substring(0, 30)}...`);
+            // Keep original JID from whatsapp-web.js
+            let cleanJid = jid;
 
             await db.query(`
               INSERT IGNORE INTO wa_chats (id, session_id, phone_number, message_id, message_text, is_from_me, status, created_at)
@@ -211,11 +197,11 @@ async function start() {
               uuidv4(), 
               data.sessionId, 
               cleanJid, 
-              msg.key.id, 
-              text || '[Media]', 
-              msg.key.fromMe ? 1 : 0,
-              msg.key.fromMe ? 'sent' : 'received',
-              new Date((msg.messageTimestamp || Date.now()/1000) * 1000)
+              msg.id._serialized || msg.id.id, 
+              text, 
+              msg.fromMe ? 1 : 0,
+              msg.fromMe ? 'sent' : 'received',
+              new Date((msg.timestamp || Date.now()/1000) * 1000)
             ]);
             savedCount++;
           }
@@ -234,6 +220,16 @@ async function start() {
           const chatId = uuidv4();
           
           let resolvedJid = data.from;
+
+          // Auto-save/update contact name from pushName
+          const cleanPhone = resolvedJid.split('@')[0];
+          await db.query(`
+            INSERT INTO wa_contacts (id, session_id, phone_number, name, source)
+            VALUES (?, ?, ?, ?, 'live_chat')
+            ON DUPLICATE KEY UPDATE 
+              name = IF(name IS NULL OR name = '' OR name = phone_number, VALUES(name), name),
+              updated_at = CURRENT_TIMESTAMP
+          `, [uuidv4(), data.sessionId, resolvedJid, data.pushName || cleanPhone]);
 
           // Save message to DB
           await db.query(`

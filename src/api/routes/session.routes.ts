@@ -247,18 +247,53 @@ router.post('/:id/restart', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/sessions/sync-all-contacts — Trigger contact sync from all active sessions
+// POST /api/sessions/sync-all-contacts — Trigger contact sync from all active sessions without restarting
 router.post('/sync-all-contacts', async (req: Request, res: Response) => {
   try {
     const sm = getSessionManager();
-    const allSessions = sm.getAllSessions();
+    const allSessions = sm.getAllSessions().filter(s => s.status === 'active');
     
-    logger.info(`🔄 Manual Sync Triggered. Restarting ${allSessions.length} sessions in parallel...`);
+    if (allSessions.length === 0) {
+      return res.status(400).json({ success: false, message: 'Tidak ada sesi WhatsApp yang aktif untuk ditarik datanya.' });
+    }
 
-    // Run restarts in parallel to avoid long request hangs
-    Promise.all(allSessions.map(session => sm.restartSession(session.id)))
-      .catch(err => logger.error(`Sync-all error: ${err.message}`));
-    res.json({ success: true, message: 'Sync started' });
+    logger.info(`🔄 Manual Sync Triggered. Menarik data kontak langsung dari ${allSessions.length} sesi aktif...`);
+
+    // Fetch contacts from active clients without restarting!
+    for (const session of allSessions) {
+      try {
+        const sessionData = sm.getSession(session.id);
+        if (sessionData && sessionData.client) {
+          const contacts = await sessionData.client.getContacts();
+          const validContacts = contacts.filter((c: any) => 
+            c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
+          );
+
+          const chats = await sessionData.client.getChats();
+          const groups = chats.filter((c: any) => c.isGroup);
+          
+          const allSync = [
+            ...validContacts.map((c: any) => ({
+              id: c.id._serialized,
+              name: c.name || c.pushname || c.id.user,
+              phone: c.id.user,
+            })),
+            ...groups.map((c: any) => ({
+              id: c.id._serialized,
+              name: c.name || c.id.user,
+              phone: c.id.user,
+            }))
+          ];
+
+          sm.emit('contacts.received', { sessionId: session.id, contacts: allSync });
+          logger.info(`✅ [SYNC] Berhasil menarik ulang ${validContacts.length} kontak secara manual.`);
+        }
+      } catch (err) {
+        logger.error(`Error pulling contacts for session ${session.id}: ${err}`);
+      }
+    }
+    
+    res.json({ success: true, message: 'Sinkronisasi berhasil ditarik tanpa restart.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

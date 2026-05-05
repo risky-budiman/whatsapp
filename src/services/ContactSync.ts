@@ -33,7 +33,7 @@ export class ContactSync {
         if (!normalizedPhone) continue;
 
         // Check if exists in gateway DB (check numeric or full JID)
-        const jidFormat = `${normalizedPhone}@s.whatsapp.net`;
+        const jidFormat = `${normalizedPhone}@c.us`;
         const [existing] = await gatewayDb.query(
           'SELECT id, name, phone_number FROM wa_contacts WHERE phone_number = ? OR phone_number = ?',
           [normalizedPhone, jidFormat]

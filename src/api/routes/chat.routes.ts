@@ -24,20 +24,30 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const db = getDb();
     const [rows] = await db.query(`
+      WITH RankedChats AS (
+        SELECT 
+          c.phone_number as raw_jid,
+          REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '') as clean_phone,
+          c.message_text, 
+          c.created_at, 
+          c.is_from_me, 
+          c.status,
+          ROW_NUMBER() OVER (PARTITION BY REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '') ORDER BY c.created_at DESC) as rn
+        FROM wa_chats c
+      )
       SELECT 
-        COALESCE(wjm.phone_number, c1.phone_number) as display_phone,
-        c1.phone_number as raw_jid,
-        c1.message_text, c1.created_at, c1.is_from_me, c1.status, wc.name as contact_name
-      FROM wa_chats c1
-      INNER JOIN (
-          SELECT phone_number, MAX(created_at) as max_date
-          FROM wa_chats
-          GROUP BY phone_number
-      ) c2 ON c1.phone_number = c2.phone_number AND c1.created_at = c2.max_date
-      LEFT JOIN wa_contacts wc ON wc.phone_number = c1.phone_number
-      LEFT JOIN wa_jid_mappings wjm ON wjm.jid = c1.phone_number
-      GROUP BY c1.phone_number
-      ORDER BY c1.created_at DESC
+        COALESCE(wjm.phone_number, r.clean_phone) as display_phone,
+        r.raw_jid,
+        r.message_text, 
+        r.created_at, 
+        r.is_from_me, 
+        r.status, 
+        wc.name as contact_name
+      FROM RankedChats r
+      LEFT JOIN wa_contacts wc ON wc.phone_number = r.raw_jid OR wc.phone_number = r.clean_phone OR wc.phone_number = CONCAT(r.clean_phone, '@c.us')
+      LEFT JOIN wa_jid_mappings wjm ON wjm.jid = r.raw_jid OR wjm.jid = r.clean_phone OR wjm.jid = CONCAT(r.clean_phone, '@lid') OR wjm.jid = CONCAT(r.clean_phone, '@c.us')
+      WHERE r.rn = 1
+      ORDER BY r.created_at DESC
       LIMIT 100
     `);
     res.json({ success: true, data: rows });
@@ -51,14 +61,18 @@ router.get('/:phone', async (req: Request, res: Response) => {
   try {
     const phone = req.params.phone as string;
     const db = getDb();
+    
+    // We must match any form of the phone (raw, @s.whatsapp.net, @c.us, @lid)
+    const cleanParam = phone.replace('@c.us', '').replace('@lid', '');
+    
     const [rows] = await db.query(`
-      SELECT c.*, COALESCE(wjm.phone_number, c.phone_number) as display_phone 
+      SELECT c.*, COALESCE(wjm.phone_number, REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '')) as display_phone 
       FROM wa_chats c
       LEFT JOIN wa_jid_mappings wjm ON wjm.jid = c.phone_number
-      WHERE c.phone_number = ? 
+      WHERE c.phone_number LIKE ? 
       ORDER BY c.created_at ASC 
       LIMIT 200
-    `, [phone]);
+    `, [`${cleanParam}%`]);
     res.json({ success: true, data: rows });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -76,7 +90,7 @@ router.post('/:phone', async (req: Request, res: Response) => {
     const activeSession = sm.getAllSessions().find(s => s.status === 'active');
     if (!activeSession) return res.status(500).json({ success: false, message: 'No active session' });
 
-    const targetJid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+    const targetJid = phone.includes('@') ? phone : `${phone}@c.us`;
     const success = await sm.sendMessage(activeSession.id, targetJid, message);
     
     if (success) {

@@ -31,5 +31,5 @@ export function isValidPhone(phone: string): boolean {
  */
 export function toWhatsAppJid(phone: string): string {
   const normalized = normalizePhone(phone);
-  return `${normalized}@s.whatsapp.net`;
+  return `${normalized}@c.us`;
 }
