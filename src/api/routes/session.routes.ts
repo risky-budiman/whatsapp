@@ -287,9 +287,21 @@ router.post('/sync-all-contacts', async (req: Request, res: Response) => {
 
           sm.emit('contacts.received', { sessionId: session.id, contacts: allSync });
           logger.info(`✅ [SYNC] Berhasil menarik ulang ${validContacts.length} kontak secara manual.`);
+
+          // ALSO Pull History for Live Chat
+          logger.info(`🔄 [SYNC] Menarik riwayat pesan terbaru (Live Chat)...`);
+          let allMessages: any[] = [];
+          const recentChats = chats.slice(0, 20); 
+          for (const chat of recentChats) {
+            try {
+              const msgs = await chat.fetchMessages({ limit: 15 });
+              allMessages.push(...msgs);
+            } catch (e) {}
+          }
+          sm.emit('history.received', { sessionId: session.id, messages: allMessages });
         }
       } catch (err) {
-        logger.error(`Error pulling contacts for session ${session.id}: ${err}`);
+        logger.error(`Error pulling contacts/history for session ${session.id}: ${err}`);
       }
     }
     
