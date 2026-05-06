@@ -37,7 +37,7 @@ export function initWorker(): void {
         }
 
         // 2. Get next available session (Rotates automatically & checks daily limit)
-        const session = sm.getNextAvailableSession();
+        const session = sm.getBestSession();
         if (!session) {
           throw new Error('No active sessions available or daily limits reached');
         }
