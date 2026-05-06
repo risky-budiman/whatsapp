@@ -52,16 +52,33 @@ export function initWorker(): void {
         // 5. Send Message (This handles Typing Simulation internally)
         const success = await sm.sendMessage(session.id, jid, messageContent);
 
-        if (!success) {
-          throw new Error('Baileys sendMessage returned false or threw error');
-        }
-
         // 6. Log success and update DB
         if (campaignId) {
+          // Update message status
           await db.query(
             "UPDATE wa_campaign_messages SET status = 'sent', sent_at = NOW(), session_id = ? WHERE id = ?",
             [session.id, messageId]
           );
+
+          // Update campaign counters
+          await db.query(
+            "UPDATE wa_campaigns SET sent_count = sent_count + 1 WHERE id = ?",
+            [campaignId]
+          );
+
+          // Check if campaign is finished
+          const [remaining]: any = await db.query(
+            "SELECT COUNT(*) as pending FROM wa_campaign_messages WHERE campaign_id = ? AND status IN ('pending', 'queued', 'sending')",
+            [campaignId]
+          );
+          
+          if (remaining[0].pending === 0) {
+            await db.query(
+              "UPDATE wa_campaigns SET status = 'completed', completed_at = NOW() WHERE id = ?",
+              [campaignId]
+            );
+            logger.info(`🏁 Campaign ${campaignId} MARKED AS COMPLETED`);
+          }
         }
 
         await db.query(
@@ -72,7 +89,6 @@ export function initWorker(): void {
         logger.info(`✅ Sent message ${messageId} via ${session.name}`);
 
         // 7. Apply random delay BEFORE processing the next message in queue
-        // (This prevents the next message from sending instantly)
         await antiBan.applyJitter();
 
       } catch (err: any) {
@@ -80,9 +96,16 @@ export function initWorker(): void {
         logger.error(`❌ Failed to send message ${messageId}: ${err.message}`);
 
         if (campaignId) {
+          // Update message status
           await db.query(
             "UPDATE wa_campaign_messages SET status = 'failed', error_message = ?, retry_count = retry_count + 1 WHERE id = ?",
             [err.message, messageId]
+          );
+
+          // Update campaign counters
+          await db.query(
+            "UPDATE wa_campaigns SET failed_count = failed_count + 1 WHERE id = ?",
+            [campaignId]
           );
         }
 
