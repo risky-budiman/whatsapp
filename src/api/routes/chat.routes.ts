@@ -3,6 +3,7 @@ import { getDb } from '../../config/database';
 import { getSessionManager } from '../../services/SessionManager';
 import { logger } from '../../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import { toWhatsAppJid } from '../../utils/phone';
 
 const router = Router();
 const chatClients: Set<Response> = new Set();
@@ -19,6 +20,23 @@ export function emitChatEvent(data: any) {
   }
 }
 
+/**
+ * @swagger
+ * tags:
+ *   name: Chats
+ *   description: Real-time chat and history
+ */
+
+/**
+ * @swagger
+ * /api/chats:
+ *   get:
+ *     summary: Get recent conversations
+ *     tags: [Chats]
+ *     responses:
+ *       200:
+ *         description: List of latest conversations
+ */
 // GET /api/chats — Get recent conversations
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -56,6 +74,22 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/chats/{phone}:
+ *   get:
+ *     summary: Get chat history for a specific phone/JID
+ *     tags: [Chats]
+ *     parameters:
+ *       - in: path
+ *         name: phone
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of messages
+ */
 // GET /api/chats/:phone — Get chat history
 router.get('/:phone', async (req: Request, res: Response) => {
   try {
@@ -79,43 +113,116 @@ router.get('/:phone', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/chats/{phone}:
+ *   post:
+ *     summary: Send a manual reply
+ *     tags: [Chats]
+ *     parameters:
+ *       - in: path
+ *         name: phone
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               message:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Message sent
+ */
 // POST /api/chats/:phone — Send manual reply
 router.post('/:phone', async (req: Request, res: Response) => {
+  const phone = req.params.phone as string;
+  const { message, sessionId } = req.body;
+  
   try {
-    const phone = req.params.phone as string;
-    const { message } = req.body;
-    if (!message) return res.status(400).json({ success: false, message: 'Message required' });
-
     const sm = getSessionManager();
-    const activeSession = sm.getAllSessions().find(s => s.status === 'active');
-    if (!activeSession) return res.status(500).json({ success: false, message: 'No active session' });
+    let session: any;
+    let status = '';
+    let finalSessionId = '';
 
-    const targetJid = phone.includes('@') ? phone : `${phone}@c.us`;
-    const success = await sm.sendMessage(activeSession.id, targetJid, message);
+    if (sessionId) {
+      const active = sm.getSession(sessionId);
+      if (active) {
+        session = active;
+        status = active.info.status;
+        finalSessionId = active.info.id;
+      }
+    } else {
+      const allActive = sm.getAllSessions().find(s => s.status === 'active');
+      if (allActive) {
+        session = sm.getSession(allActive.id);
+        status = allActive.status;
+        finalSessionId = allActive.id;
+      }
+    }
+    
+    if (!session || status !== 'active') {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Device/Sesi tidak ditemukan atau tidak aktif',
+        debug: { requestedId: sessionId, foundStatus: status } 
+      });
+    }
+
+    const targetJid = toWhatsAppJid(phone);
+    const success = await sm.sendMessage(finalSessionId, targetJid, message);
     
     if (success) {
       const db = getDb();
       const chatId = uuidv4();
       const chatData = {
         id: chatId,
-        session_id: activeSession.id,
+        session_id: finalSessionId,
         phone_number: phone,
         message_text: message,
         is_from_me: true,
         status: 'sent',
         created_at: new Date()
       };
+      
+      // 1. Simpan ke wa_chats (Live Chat)
       await db.query(`
         INSERT INTO wa_chats (id, session_id, phone_number, message_text, is_from_me, status)
         VALUES (?, ?, ?, ?, true, 'sent')
-      `, [chatId, activeSession.id, phone, message]);
+      `, [chatId, finalSessionId, phone, message]);
+
+      // 2. Simpan ke wa_message_logs (Riwayat)
+      try {
+        await db.query(`
+          INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status)
+          VALUES (?, ?, ?, ?, 'outgoing', 'sent')
+        `, [uuidv4(), finalSessionId, phone, message]);
+      } catch (logErr: any) {
+        logger.error(`[LOG_ERROR] Gagal simpan ke wa_message_logs: ${logErr.message}`);
+      }
+
       emitChatEvent(chatData);
       res.json({ success: true, data: chatData });
     } else {
       res.status(500).json({ success: false, message: 'Failed to send' });
     }
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    logger.error(`[CHAT_ERROR] POST /api/chats/${phone}: ${err.message || err}`, { stack: err.stack });
+    res.status(500).json({ 
+      success: false, 
+      message: err.message || 'Internal Server Error',
+      error_details: {
+        name: err.name,
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      }
+    });
   }
 });
 
@@ -169,6 +276,16 @@ router.delete('/history/:phone', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/chats/stream/events:
+ *   get:
+ *     summary: Real-time event stream via SSE
+ *     tags: [Chats]
+ *     responses:
+ *       200:
+ *         description: SSE stream for new messages and sync updates
+ */
 // GET /api/chats/stream — SSE for real-time updates and sync notifications
 router.get('/stream/events', (req: Request, res: Response) => {
   res.writeHead(200, {
@@ -189,6 +306,61 @@ router.get('/stream/events', (req: Request, res: Response) => {
     sm.removeListener('sync.progress', onSync);
     chatClients.delete(res);
   });
+});
+
+// GET /api/chats/logs — List all message logs
+router.get('/logs', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const limit = parseInt((req.query.limit as string) || '50', 10);
+    const offset = parseInt((req.query.offset as string) || '0', 10);
+
+    const [rows]: any = await db.query(
+      `SELECT 
+        l.id,
+        l.target_phone,
+        l.message_content,
+        l.status,
+        l.error as error_message,
+        l.created_at,
+        s.name as session_name
+       FROM wa_message_logs l
+       LEFT JOIN wa_sessions s ON l.session_id = s.id
+       ORDER BY l.created_at DESC 
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+
+    const [totalRows]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
+    const total = totalRows[0]?.count || 0;
+
+    logger.info(`[DEBUG] Log Retrieval: Found ${rows.length} rows, Total in DB: ${total}`);
+
+    res.json({
+      success: true,
+      data: rows || [],
+      meta: {
+        total,
+        limit,
+        offset
+      }
+    });
+  } catch (err: any) {
+    logger.error(`Error loading logs: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ROUTE DIAGNOSTIK (Bisa dihapus nanti)
+router.get('/db-check', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const [rows]: any = await db.query('SELECT * FROM wa_message_logs ORDER BY created_at DESC LIMIT 10');
+    const [total]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
+    res.json({ rows, total: total[0].count });
+  } catch (err: any) {
+    res.json({ error: err.message });
+  }
 });
 
 export default router;

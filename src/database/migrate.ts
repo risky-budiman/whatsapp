@@ -141,6 +141,14 @@ const TABLES = [
       INDEX idx_phone (phone_number)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   },
+  {
+    name: 'wa_settings',
+    sql: `CREATE TABLE IF NOT EXISTS wa_settings (
+      \`key\` VARCHAR(100) PRIMARY KEY,
+      value TEXT,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  },
 ];
 
 async function migrate() {

@@ -2,11 +2,76 @@
  * Main Application Logic (Vanilla JS SPA)
  */
 
+let activeView = 'dashboard';
+
+/**
+ * Custom Toast Notification System
+ * type: 'success', 'error', 'info'
+ */
+function showToast(message, type = 'success', title = '') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const iconMap = {
+    success: 'fa-circle-check',
+    error: 'fa-circle-xmark',
+    info: 'fa-circle-info'
+  };
+
+  const defaultTitles = {
+    success: 'Berhasil',
+    error: 'Gagal',
+    info: 'Informasi'
+  };
+
+  toast.innerHTML = `
+    <div class="toast-icon">
+      <i class="fa-solid ${iconMap[type]}"></i>
+    </div>
+    <div class="toast-content">
+      <div class="toast-title">${title || defaultTitles[type]}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+  `;
+
+  container.appendChild(toast);
+
+  // Auto remove
+  setTimeout(() => {
+    toast.classList.add('hiding');
+    setTimeout(() => toast.remove(), 400);
+  }, 4000);
+}
+
+// Override global alert for safety (optional but helps)
+// window.alert = (msg) => showToast(msg, 'info');
+
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initChatStream();
-  loadView('sessions'); // Default view
+  loadView(activeView); // Default view
+  syncSettings();
 });
+
+async function syncSettings() {
+  try {
+    const res = await wa_api.settings.get();
+    const isEnabled = res.data.liveChatEnabled;
+    const toggle = document.getElementById('live-chat-toggle');
+    const text = document.getElementById('live-chat-status-text');
+    
+    if (toggle && text) {
+      toggle.checked = isEnabled;
+      text.innerText = isEnabled ? 'ON' : 'OFF';
+      text.style.color = isEnabled ? 'var(--success)' : 'var(--danger)';
+    }
+  } catch (err) {
+    console.warn("Gagal sinkronisasi settings:", err);
+  }
+}
 
 // ─── MODAL UTILITIES ───
 function openModal(id) {
@@ -37,6 +102,7 @@ function initNavigation() {
 }
 
 function loadView(viewId) {
+  activeView = viewId;
   // Hide all sections
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
   
@@ -47,9 +113,11 @@ function loadView(viewId) {
   }
 
   // Load data based on view
+  if (viewId === 'dashboard') renderDashboard();
   if (viewId === 'sessions') renderSessions();
   if (viewId === 'contacts') renderContacts();
   if (viewId === 'groups') renderGroups();
+  if (viewId === 'logs') renderMessageLogs();
   if (viewId === 'campaigns') renderCampaigns();
   if (viewId === 'live-chat') {
     renderLiveChat();
@@ -57,44 +125,177 @@ function loadView(viewId) {
   }
 }
 
+// ─── MESSAGE LOGS MANAGEMENT ───
+let logOffset = 0;
+const logLimit = 50;
+
+async function renderMessageLogs() {
+  const tbody = document.getElementById('logs-tbody');
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center">Loading...</td></tr>`;
+  
+  try {
+    const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
+    const logs = res.data || [];
+    const total = (res.meta && typeof res.meta.total !== 'undefined') ? res.meta.total : logs.length;
+
+    if (logs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada riwayat pesan</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = logs.map((l, index) => {
+      const time = new Date(l.created_at).toLocaleString();
+      let statusHtml = '';
+      
+      if (l.status === 'sent') {
+        statusHtml = `<span class="badge active" title="Berhasil Terkirim"><i class="fa-solid fa-check"></i> Sent</span>`;
+      } else if (l.status === 'failed') {
+        statusHtml = `<span class="badge danger" title="${l.error_message || 'Error'}"><i class="fa-solid fa-triangle-exclamation"></i> Failed</span>`;
+      } else {
+        statusHtml = `<span class="badge secondary">${l.status}</span>`;
+      }
+
+      return `
+        <tr>
+          <td>${logOffset + index + 1}</td>
+          <td>${l.target_phone.split('@')[0]}</td>
+          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content}">${l.message_content}</td>
+          <td><span class="badge secondary">${l.session_name || 'System'}</span></td>
+          <td style="font-size: 0.8rem;">${time}</td>
+          <td>${statusHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Update pagination UI
+    document.getElementById('log-pagination-info').innerText = `Menampilkan ${logOffset + 1} - ${Math.min(logOffset + logLimit, total)} dari ${total} pesan`;
+    document.getElementById('btn-prev-log').disabled = logOffset === 0;
+    document.getElementById('btn-next-log').disabled = (logOffset + logLimit) >= total;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
+  }
+}
+
+function changeLogPage(dir) {
+  logOffset += (dir * logLimit);
+  if (logOffset < 0) logOffset = 0;
+  renderMessageLogs();
+}
+
+// ─── DASHBOARD & STATS ───
+async function renderDashboard() {
+  try {
+    const res = await wa_api.settings.getStats();
+    const stats = res.data;
+    
+    document.getElementById('dash-active-sessions').innerText = stats.activeSessions;
+    document.getElementById('dash-total-contacts').innerText = stats.totalContacts;
+    document.getElementById('dash-messages-today').innerText = stats.messagesToday;
+    document.getElementById('dash-total-broadcast').innerText = stats.totalBroadcasts;
+
+    // Recent Logs
+    const logRes = await wa_api.chats.getLogs({ limit: 5 });
+    const tbody = document.getElementById('dash-recent-logs');
+    
+    if (logRes.data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">Belum ada aktivitas</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = logRes.data.map(l => {
+      const time = new Date(l.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      const statusClass = l.status === 'sent' ? 'active' : 'failed';
+      return `
+        <tr>
+          <td>${l.target_phone.split('@')[0]}</td>
+          <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${l.message_content}</td>
+          <td>${time}</td>
+          <td><span class="badge ${statusClass}">${l.status}</span></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error("Gagal memuat dashboard:", err);
+  }
+}
+
 // ─── SESSIONS MANAGEMENT ───
 let qrEventSource = null;
 
 async function renderSessions() {
-  const tbody = document.getElementById('sessions-tbody');
-  tbody.innerHTML = `<tr><td colspan="5" class="text-center">Loading...</td></tr>`;
+  const grid = document.getElementById('sessions-grid');
+  grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px;">
+    <i class="fa-solid fa-circle-notch fa-spin fa-2x" style="color: var(--primary); margin-bottom: 10px;"></i>
+    <p>Memuat perangkat...</p>
+  </div>`;
   
   try {
     const res = await wa_api.sessions.list();
     const sessions = res.data;
     
     if (sessions.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Belum ada Sesi WhatsApp</td></tr>`;
+      grid.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 60px; background: rgba(255,255,255,0.02); border-radius: 20px; border: 2px dashed var(--glass-border);">
+          <i class="fa-solid fa-mobile-screen fa-3x" style="color: var(--text-muted); margin-bottom: 20px; opacity: 0.5;"></i>
+          <h3>Belum ada Perangkat</h3>
+          <p class="text-muted" style="margin-bottom: 20px;">Hubungkan nomor WhatsApp Anda untuk mulai mengirim pesan.</p>
+          <button class="btn btn-primary" onclick="openModal('modal-add-session')">
+            <i class="fa-solid fa-plus"></i> Tambah Perangkat Pertama
+          </button>
+        </div>
+      `;
       return;
     }
 
-    tbody.innerHTML = sessions.map(s => `
-      <tr>
-        <td><strong>${s.name}</strong></td>
-        <td>${s.phone_number || '-'}</td>
-        <td><span class="badge ${s.status}">${s.status}</span></td>
-        <td>${s.daily_sent_count} / ${s.daily_limit}</td>
-        <td>
-          ${s.status !== 'active' ? `<button class="btn btn-sm btn-primary" onclick="openQrModal('${s.id}')">Scan QR</button>` : ''}
-          <button class="btn btn-sm btn-secondary" onclick="clearSessionData('${s.id}')" title="Hapus pesan & kontak perangkat ini">Kosongkan Data</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteSession('${s.id}')">Hapus</button>
-        </td>
-      </tr>
-    `).join('');
+    grid.innerHTML = sessions.map((s) => {
+      const statusText = s.status.charAt(0).toUpperCase() + s.status.slice(1);
+      const isConnected = s.status === 'active';
+      
+      return `
+        <div class="session-card ${s.status}">
+          <div class="status-indicator"></div>
+          <div class="session-card-header">
+            <div class="session-info">
+              <h3>${s.name}</h3>
+              <p>${s.phone_number || 'Menunggu Koneksi...'}</p>
+            </div>
+            <span class="badge ${s.status}">${statusText}</span>
+          </div>
 
-    // Update stats
-    const activeCount = sessions.filter(s => s.status === 'active').length;
-    const totalSent = sessions.reduce((sum, s) => sum + (s.daily_sent_count || 0), 0);
-    
-    document.getElementById('stat-sessions-active').innerText = activeCount;
-    document.getElementById('stat-messages-today').innerText = totalSent;
+          <div class="session-stats">
+            <div class="session-stat-item">
+              <div class="session-stat-label">Terkirim Hari Ini</div>
+              <div class="session-stat-value">${s.daily_sent_count}</div>
+            </div>
+            <div class="session-stat-item">
+              <div class="session-stat-label">Limit Harian</div>
+              <div class="session-stat-value">${s.daily_limit}</div>
+            </div>
+          </div>
+
+          <div class="session-actions">
+            ${!isConnected ? `
+              <button class="btn btn-primary" onclick="openQrModal('${s.id}')">
+                <i class="fa-solid fa-qrcode"></i> Hubungkan
+              </button>
+            ` : `
+              <button class="btn btn-outline" onclick="clearSessionData('${s.id}')" title="Hapus Chat & Kontak Sesi Ini">
+                <i class="fa-solid fa-broom"></i> Bersihkan
+              </button>
+            `}
+            <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')" title="Hapus Perangkat">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-state text-danger">Gagal memuat sesi: ${err.message}</td></tr>`;
+    grid.innerHTML = `<div style="grid-column: 1/-1; color: var(--danger); text-align: center; padding: 40px;">
+      <i class="fa-solid fa-triangle-exclamation fa-2x"></i>
+      <p style="margin-top: 10px;">Gagal memuat perangkat: ${err.message}</p>
+    </div>`;
   }
 }
 
@@ -116,7 +317,7 @@ async function createSession(e) {
     renderSessions();
     openQrModal(res.data.id);
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, "error");
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -188,7 +389,7 @@ async function deleteSession(id) {
     await wa_api.sessions.delete(id);
     renderSessions();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, "error");
   }
 }
 
@@ -196,12 +397,12 @@ async function clearSessionData(id) {
   if (!confirm('⚠️ PERINGATAN: Hapus semua pesan dan kontak untuk perangkat ini? Tindakan ini tidak dapat dibatalkan.')) return;
   try {
     const res = await wa_api.sessions.clearData(id);
-    alert(`Berhasil! ${res.details.chats_deleted} pesan dan ${res.details.contacts_deleted} kontak dihapus.`);
+    showToast(`Berhasil! ${res.details.chats_deleted} pesan dan ${res.details.contacts_deleted} kontak dihapus.`);
     if (activeView === 'contacts') renderContacts();
     if (activeView === 'groups') renderGroups();
     if (activeView === 'live-chat') renderLiveChat();
   } catch (err) {
-    alert("Gagal menghapus data: " + err.message);
+    showToast("Gagal menghapus data: " + err.message, "error");
   }
 }
 
@@ -214,49 +415,137 @@ async function hardResetAllData() {
 
   try {
     const res = await wa_api.sessions.resetAllData();
-    alert("✅ " + res.message);
-    location.reload(); // Force reload to clear everything
+    showToast(res.message);
+    setTimeout(() => location.reload(), 1500); // Give time for toast
   } catch (err) {
-    alert("❌ Gagal melakukan reset: " + err.message);
+    showToast("Gagal melakukan reset: " + err.message, "error");
   }
 }
 
 // ─── CONTACTS MANAGEMENT ───
 let cachedContacts = [];
 let cachedGroups = [];
+let contactOffset = 0;
+const contactLimit = 25;
 
 async function renderContacts() {
   const tbody = document.getElementById('contacts-tbody');
-  tbody.innerHTML = `<tr><td colspan="4" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center">Loading...</td></tr>`;
   
   try {
-    const res = await wa_api.contacts.list({ limit: 500 });
+    const res = await wa_api.contacts.list({ limit: contactLimit, offset: contactOffset });
     cachedContacts = res.data;
+    const total = res.meta.total;
+    
     displayContacts(cachedContacts);
+    
+    // Update pagination UI
+    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${contactOffset + 1} - ${Math.min(contactOffset + contactLimit, total)} dari ${total} kontak`;
+    document.getElementById('btn-prev-contact').disabled = contactOffset === 0;
+    document.getElementById('btn-next-contact').disabled = (contactOffset + contactLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
+}
+
+function changeContactPage(dir) {
+  contactOffset += (dir * contactLimit);
+  if (contactOffset < 0) contactOffset = 0;
+  renderContacts();
 }
 
 function displayContacts(contacts) {
   const tbody = document.getElementById('contacts-tbody');
   if (contacts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = contacts.map(c => {
-    // Priority: Database name -> Phone number prefix
+  tbody.innerHTML = contacts.map((c, index) => {
     const displayName = c.name && c.name !== '' ? c.name : c.phone_number.split('@')[0];
+    const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
+    const tagHtml = tags.map(t => `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--info); font-size: 0.65rem; margin-right: 4px;">${t}</span>`).join('');
+    
     return `
       <tr>
+        <td>${contactOffset + index + 1}</td>
+        <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-name="${displayName}"></td>
         <td><strong>${displayName}</strong></td>
-        <td>${c.phone_number}</td>
-        <td><span class="badge active">Active</span></td>
-        <td>${c.source}</td>
+        <td>${c.phone_number.split('@')[0]}</td>
+        <td>${tagHtml || '-'}</td>
+        <td><span class="badge" style="font-size:0.7rem">${c.source}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline" title="Kirim Pesan" onclick="openDirectMessageModal('${c.phone_number}')"><i class="fa-solid fa-paper-plane"></i></button>
+          <button class="btn btn-sm btn-outline" title="Edit" onclick="openEditContactModal('${c.id}')"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn-sm btn-outline" title="Hapus" style="color:var(--danger)" onclick="deleteContact('${c.id}')"><i class="fa-solid fa-trash"></i></button>
+        </td>
       </tr>
     `;
   }).join('');
+}
+
+function toggleSelectAllContacts(source) {
+  document.querySelectorAll('.contact-checkbox').forEach(cb => cb.checked = source.checked);
+}
+
+function openAddContactModal() {
+  document.getElementById('contact-modal-title').innerText = 'Tambah Kontak Baru';
+  document.getElementById('contact-id').value = '';
+  document.getElementById('contact-name').value = '';
+  document.getElementById('contact-phone').value = '';
+  document.getElementById('contact-tags').value = '';
+  openModal('modal-contact-form');
+}
+
+function openEditContactModal(id) {
+  const c = cachedContacts.find(x => x.id === id);
+  if (!c) return;
+
+  document.getElementById('contact-modal-title').innerText = 'Edit Kontak';
+  document.getElementById('contact-id').value = c.id;
+  document.getElementById('contact-name').value = c.name || '';
+  document.getElementById('contact-phone').value = c.phone_number.split('@')[0];
+  
+  const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
+  document.getElementById('contact-tags').value = tags.join(', ');
+  
+  openModal('modal-contact-form');
+}
+
+async function saveContact(e) {
+  e.preventDefault();
+  const id = document.getElementById('contact-id').value;
+  const name = document.getElementById('contact-name').value;
+  const phone = document.getElementById('contact-phone').value;
+  const tagsStr = document.getElementById('contact-tags').value;
+  const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()) : [];
+
+  try {
+    await wa_api.fetch('/contacts', {
+      method: 'POST',
+      body: JSON.stringify({ phone, name, tags })
+    });
+    closeModal('modal-contact-form');
+    renderContacts();
+    showToast("Kontak berhasil disimpan!");
+  } catch (err) {
+    showToast("Gagal menyimpan kontak: " + err.message, "error");
+  }
+}
+
+async function deleteContact(id) {
+  if (!confirm('Hapus kontak ini?')) return;
+  try {
+    await wa_api.contacts.delete(id);
+    renderContacts();
+  } catch (err) {
+    alert("Gagal: " + err.message);
+  }
+}
+
+function handleCampaignTargetChange(val) {
+  const tagGroup = document.getElementById('tag-filter-group');
+  tagGroup.style.display = (val === 'tags') ? 'block' : 'none';
 }
 
 function filterContacts() {
@@ -268,17 +557,33 @@ function filterContacts() {
   displayContacts(filtered);
 }
 
+let groupOffset = 0;
+const groupLimit = 25;
+
 async function renderGroups() {
   const tbody = document.getElementById('groups-tbody');
   tbody.innerHTML = `<tr><td colspan="4" class="text-center">Loading...</td></tr>`;
   
   try {
-    const res = await wa_api.contacts.listGroups();
+    const res = await wa_api.contacts.listGroups({ limit: groupLimit, offset: groupOffset });
     cachedGroups = res.data;
+    const total = res.meta.total;
+
     displayGroups(cachedGroups);
+
+    // Update pagination UI
+    document.getElementById('group-pagination-info').innerText = `Menampilkan ${groupOffset + 1} - ${Math.min(groupOffset + groupLimit, total)} dari ${total} grup`;
+    document.getElementById('btn-prev-group').disabled = groupOffset === 0;
+    document.getElementById('btn-next-group').disabled = (groupOffset + groupLimit) >= total;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="4" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
+}
+
+function changeGroupPage(dir) {
+  groupOffset += (dir * groupLimit);
+  if (groupOffset < 0) groupOffset = 0;
+  renderGroups();
 }
 
 function displayGroups(groups) {
@@ -288,11 +593,12 @@ function displayGroups(groups) {
     return;
   }
 
-  tbody.innerHTML = groups.map(g => {
+  tbody.innerHTML = groups.map((g, index) => {
     // Priority: Database name -> Group ID prefix
     const displayName = g.name && g.name !== '' ? g.name : g.phone_number.split('@')[0];
     return `
       <tr>
+        <td>${groupOffset + index + 1}</td>
         <td><strong>${displayName}</strong></td>
         <td>${g.phone_number}</td>
         <td><span class="badge active">Active</span></td>
@@ -317,10 +623,10 @@ async function syncLaravel() {
 
   try {
     const res = await wa_api.fetch('/contacts/sync-laravel', { method: 'POST' });
-    alert(`Sinkronisasi selesai! Ditambahkan: ${res.data.added}, Diperbarui: ${res.data.updated}`);
+    showToast(`Sinkronisasi selesai! Ditambahkan: ${res.data.added}, Diperbarui: ${res.data.updated}`);
     renderContacts();
   } catch (err) {
-    alert("Gagal sinkronisasi: " + err.message);
+    showToast("Gagal sinkronisasi: " + err.message, "error");
   } finally {
     overlay.style.display = 'none';
   }
@@ -352,7 +658,7 @@ async function syncWhatsApp() {
     
   } catch (err) {
     overlay.style.display = 'none';
-    alert("Gagal sinkronisasi WhatsApp: " + err.message);
+    showToast("Gagal sinkronisasi WhatsApp: " + err.message, "error");
   }
 }
 
@@ -370,10 +676,11 @@ async function renderCampaigns() {
       return;
     }
 
-    tbody.innerHTML = campaigns.map(c => {
+    tbody.innerHTML = campaigns.map((c, index) => {
       const progress = c.total_recipients > 0 ? Math.round((c.sent_count / c.total_recipients) * 100) : 0;
       return `
       <tr>
+        <td>${index + 1}</td>
         <td><strong>${c.name}</strong></td>
         <td><span class="badge ${c.status}">${c.status}</span></td>
         <td>${c.total_recipients}</td>
@@ -382,6 +689,7 @@ async function renderCampaigns() {
           <div style="width: 100%; background: var(--bg-dark); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 5px;">
             <div style="width: ${progress}%; background: var(--primary); height: 100%;"></div>
           </div>
+          <small>${progress}%</small>
         </td>
         <td>
           ${['pending', 'draft', 'paused'].includes(c.status) 
@@ -401,57 +709,81 @@ async function startCampaign(id) {
     await wa_api.campaigns.start(id);
     renderCampaigns();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, "error");
   }
 }
 
 let allContacts = [];
 
 function openCampaignModal() {
-  if (allContacts.length === 0) {
-    wa_api.contacts.list().then(res => {
-      allContacts = res.data.filter(c => !c.is_opted_out);
-      const sel = document.getElementById('campaign-target');
-      sel.innerHTML = `<option value="all">Semua Kontak Aktif (${allContacts.length})</option>`;
-      openModal('modal-add-campaign');
-    }).catch(err => {
-      alert("Gagal memuat kontak: " + err.message);
-    });
-  } else {
+  wa_api.contacts.list().then(res => {
+    allContacts = res.data.filter(c => !c.is_opted_out);
     openModal('modal-add-campaign');
-  }
+  }).catch(err => {
+    showToast("Gagal memuat kontak: " + err.message, "error");
+  });
 }
 
 async function createCampaign(e) {
   e.preventDefault();
   const name = document.getElementById('campaign-name').value;
   const message = document.getElementById('campaign-message').value;
+  const targetType = document.getElementById('campaign-target').value;
+  const greetings = document.getElementById('campaign-greetings').value.split(',').map(s => s.trim());
+  const closers = document.getElementById('campaign-closers').value.split(',').map(s => s.trim());
 
   if (!name || !message) return;
-  if (allContacts.length === 0) {
-    alert("Tidak ada kontak tersedia untuk dikirim.");
-    return;
-  }
 
   const btn = e.target.querySelector('button');
   const originalText = btn.innerHTML;
-  btn.innerHTML = 'Membuat...';
+  btn.innerHTML = 'Memproses...';
   btn.disabled = true;
 
   try {
-    const recipients = allContacts.map(c => ({ phone: c.phone_number, name: c.name || '' }));
-    await wa_api.campaigns.create({
+    let recipients = [];
+    if (targetType === 'all') {
+      recipients = allContacts.map(c => ({ phone: c.phone_number, name: c.name || '' }));
+    } else if (targetType === 'selected') {
+      const selected = document.querySelectorAll('.contact-checkbox:checked');
+      recipients = Array.from(selected).map(cb => ({ phone: cb.value, name: cb.getAttribute('data-name') }));
+    } else if (targetType === 'tags') {
+      const tagFilter = document.getElementById('campaign-tag-filter').value.toLowerCase();
+      recipients = allContacts.filter(c => {
+        const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
+        return tags.some(t => t.toLowerCase().includes(tagFilter));
+      }).map(c => ({ phone: c.phone_number, name: c.name || '' }));
+    } else {
+      // Groups
+      const res = await wa_api.contacts.listGroups();
+      recipients = res.data.map(g => ({ phone: g.phone_number, name: g.name }));
+    }
+
+    if (recipients.length === 0) {
+      throw new Error("Tidak ada target ditemukan (Pastikan Anda sudah mencentang kontak atau memasukkan tag yang benar).");
+    }
+
+    const payload = {
       name,
       template: message,
-      recipients
-    });
+      recipients,
+      variationPool: {
+        greetings,
+        closers
+      }
+    };
+
+    const res = await wa_api.campaigns.create(payload);
+    
+    // Auto-start campaign
+    await wa_api.campaigns.start(res.id);
     
     closeModal('modal-add-campaign');
     document.getElementById('campaign-name').value = '';
     document.getElementById('campaign-message').value = '';
     renderCampaigns();
+    showToast(`Campaign "${name}" berhasil dibuat dengan ${recipients.length} target!`);
   } catch (err) {
-    alert("Gagal membuat campaign: " + err.message);
+    showToast("Gagal: " + err.message, "error");
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -630,9 +962,11 @@ function initChatStream() {
 
     // Notification badge for messages
     const chatTab = document.querySelector('.nav-link[data-view="live-chat"]');
-    if (!chatTab.classList.contains('active')) {
+    const isLiveChatOn = document.getElementById('live-chat-toggle')?.checked ?? true;
+    
+    if (!chatTab.classList.contains('active') && isLiveChatOn) {
       document.getElementById('chat-badge').style.display = 'inline-block';
-    } else {
+    } else if (chatTab.classList.contains('active')) {
       renderLiveChat(); // update sidebar
     }
 
@@ -650,4 +984,61 @@ function initChatStream() {
       history.scrollTop = history.scrollHeight;
     }
   };
+}
+
+async function openDirectMessageModal(prefillPhone = '') {
+  try {
+    const res = await wa_api.sessions.list();
+    const activeSessions = res.data.filter(s => s.status === 'active');
+    const select = document.getElementById('dm-session-id');
+    
+    if (activeSessions.length === 0) {
+      showToast("Tidak ada perangkat WhatsApp yang aktif. Hubungkan nomor terlebih dahulu.", "error");
+      return;
+    }
+
+    select.innerHTML = activeSessions.map(s => `
+      <option value="${s.id}">${s.name} (${s.phone_number || 'Tanpa Nomor'})</option>
+    `).join('');
+    
+    // Prefill phone if provided
+    const phoneInput = document.getElementById('dm-target-phone');
+    if (phoneInput) {
+      phoneInput.value = prefillPhone ? prefillPhone.split('@')[0] : '';
+    }
+
+    openModal('modal-direct-message');
+  } catch (err) {
+    showToast("Gagal memuat daftar perangkat: " + err.message, "error");
+  }
+}
+
+async function sendDirectMessage(e) {
+  e.preventDefault();
+  const sessionId = document.getElementById('dm-session-id').value;
+  const phone = document.getElementById('dm-target-phone').value;
+  const message = document.getElementById('dm-message').value;
+  
+  const btn = e.target.querySelector('button');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = 'Mengirim...';
+  btn.disabled = true;
+
+  try {
+    await wa_api.fetch(`/chats/${phone}`, {
+      method: 'POST',
+      body: JSON.stringify({ message, sessionId })
+    });
+    
+    closeModal('modal-direct-message');
+    showToast("Pesan berhasil dikirim!");
+    if (document.getElementById('view-logs').classList.contains('active')) {
+      renderMessageLogs();
+    }
+  } catch (err) {
+    showToast("Gagal mengirim pesan: " + err.message, "error");
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
 }

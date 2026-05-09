@@ -1,12 +1,15 @@
 import express from 'express';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger';
 import { env, validateEnv } from './config/env';
 import { getDb, testDbConnection } from './config/database';
 import { testRedisConnection } from './config/redis';
 import { getSessionManager } from './services/SessionManager';
 import { getContactSync } from './services/ContactSync';
 import { logger } from './utils/logger';
+import { settingsService } from './services/SettingsService';
 import { initQueue } from './services/QueueService';
 import { initWorker } from './workers/MessageWorker';
 
@@ -30,7 +33,7 @@ process.on('uncaughtException', (err: any) => {
 });
 
 // Use APP_PORT to match env.ts
-const PORT = env.APP_PORT || 3101;
+const PORT = env.APP_PORT || 3100;
 
 // Middleware
 app.use(express.json());
@@ -40,12 +43,35 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Swagger Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // API Routes
 app.use('/api/sessions', sessionRoutes);
+import settingsRoutes from './api/routes/settings.routes';
+
 app.use('/api/contacts', contactRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/settings', settingsRoutes);
 
+// Global Error Handler for JSON Syntax Errors
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'status' in err && (err as any).status === 400 && 'body' in err) {
+    return res.status(400).json({ success: false, message: 'Invalid JSON format. Check your quotes and brackets.' });
+  }
+  next();
+});
+
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check
+ *     responses:
+ *       200:
+ *         description: Server is up
+ */
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
@@ -77,6 +103,16 @@ async function start() {
           await db.query("ALTER TABLE wa_contacts DROP INDEX IF EXISTS phone_number");
           await db.query("ALTER TABLE wa_contacts ADD UNIQUE INDEX idx_session_phone (session_id, phone_number)");
         }
+
+        // Ensure wa_settings table exists
+        await db.query(`CREATE TABLE IF NOT EXISTS wa_settings (
+          \`key\` VARCHAR(100) PRIMARY KEY,
+          value TEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+        
+        // Init settings
+        await settingsService.init();
         logger.info('✅ Database schema verified.');
 
         logger.info('🧹 Background cleanup: Ensuring no duplicate messages...');
@@ -170,6 +206,7 @@ async function start() {
 
       // 2. Listen for historical messages (sync like WhatsApp Web)
       sm.on('history.received', async (data: { sessionId: string; messages: any[] }) => {
+        if (!settingsService.isLiveChatEnabled()) return;
         try {
           const db = getDb();
           const messages = data.messages || [];
@@ -213,6 +250,7 @@ async function start() {
 
       // 3. Listen for incoming messages
       sm.on('message.received', async (data: any) => {
+        if (!settingsService.isLiveChatEnabled()) return;
         try {
           if (data.from === 'status@broadcast' || data.from.endsWith('@newsletter')) return;
 

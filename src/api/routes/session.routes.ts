@@ -5,6 +5,47 @@ import { logger } from '../../utils/logger';
 
 const router = Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Sessions
+ *   description: WhatsApp session management
+ */
+
+/**
+ * @swagger
+ * /api/sessions:
+ *   get:
+ *     summary: List all sessions
+ *     tags: [Sessions]
+ *     responses:
+ *       200:
+ *         description: List of all sessions with live status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       phone_number:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       daily_sent_count:
+ *                         type: integer
+ *                       daily_limit:
+ *                         type: integer
+ */
 // GET /api/sessions — List all sessions
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -35,6 +76,30 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions:
+ *   post:
+ *     summary: Create a new session
+ *     tags: [Sessions]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Nomor Utama"
+ *     responses:
+ *       200:
+ *         description: Session created successfully
+ *       400:
+ *         description: Name is required
+ */
 // POST /api/sessions — Create new session
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -58,6 +123,22 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}/qr:
+ *   get:
+ *     summary: Get QR Code via SSE stream
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: SSE stream for QR updates
+ */
 // GET /api/sessions/:id/qr — QR Code via SSE (Server-Sent Events)
 router.get('/:id/qr', async (req: Request, res: Response) => {
   try {
@@ -159,6 +240,22 @@ router.get('/:id/qr-image', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}/status:
+ *   get:
+ *     summary: Get session status
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session status data
+ */
 // GET /api/sessions/:id/status — Session status
 router.get('/:id/status', async (req: Request, res: Response) => {
   try {
@@ -191,6 +288,22 @@ router.get('/:id/status', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}:
+ *   delete:
+ *     summary: Delete a session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session deleted
+ */
 // DELETE /api/sessions/:id — Delete session
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
@@ -204,6 +317,22 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}/connect:
+ *   post:
+ *     summary: Start connection for existing session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Connection process started
+ */
 // POST /api/sessions/:id/connect — Start/Re-start connection for existing session
 router.post('/:id/connect', async (req: Request, res: Response) => {
   try {
@@ -228,6 +357,22 @@ router.post('/:id/connect', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}/restart:
+ *   post:
+ *     summary: Restart session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session restart triggered
+ */
 // POST /api/sessions/:id/restart — Restart session
 router.post('/:id/restart', async (req: Request, res: Response) => {
   try {
@@ -247,6 +392,16 @@ router.post('/:id/restart', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/sync-all-contacts:
+ *   post:
+ *     summary: Trigger contact sync from all active sessions
+ *     tags: [Sessions]
+ *     responses:
+ *       200:
+ *         description: Sync triggered
+ */
 // POST /api/sessions/sync-all-contacts — Trigger contact sync from all active sessions without restarting
 router.post('/sync-all-contacts', async (req: Request, res: Response) => {
   try {
@@ -311,6 +466,22 @@ router.post('/sync-all-contacts', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/sessions/{id}/clear-data:
+ *   post:
+ *     summary: Clear chats and contacts for a specific session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Data cleared successfully
+ */
 // POST /api/sessions/:id/clear-data — Clear chats and contacts for a specific session (Chunked for performance)
 router.post('/:id/clear-data', async (req: Request, res: Response) => {
   try {

@@ -1,4 +1,6 @@
 import { Client, LocalAuth, Message, Events } from 'whatsapp-web.js';
+import { getAntiBanEngine } from './AntiBanEngine';
+import { settingsService } from './SettingsService';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
@@ -165,20 +167,25 @@ export class SessionManager extends EventEmitter {
             }))
           ];
 
-          this.emit('contacts.received', { sessionId, contacts: allSync });
-          logger.info(`[SYNC] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
+          // Hanya emit kontak jika Live Chat Aktif
+          if (settingsService.isLiveChatEnabled()) {
+            this.emit('contacts.received', { sessionId, contacts: allSync });
+            logger.info(`[SYNC] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
 
-          // Sync recent messages for Live Chat
-          logger.info(`[SYNC] Menarik riwayat obrolan (Live Chat)...`);
-          let allMessages: any[] = [];
-          const recentChats = chats.slice(0, 20); // Top 20 recent chats
-          for (const chat of recentChats) {
-            try {
-              const msgs = await chat.fetchMessages({ limit: 15 });
-              allMessages.push(...msgs);
-            } catch (e) {}
+            // Sync recent messages for Live Chat
+            logger.info(`[SYNC] Menarik riwayat obrolan (Live Chat)...`);
+            let allMessages: any[] = [];
+            const recentChats = chats.slice(0, 20); // Top 20 recent chats
+            for (const chat of recentChats) {
+              try {
+                const msgs = await chat.fetchMessages({ limit: 15 });
+                allMessages.push(...msgs);
+              } catch (e) {}
+            }
+            this.emit('history.received', { sessionId, messages: allMessages });
+          } else {
+            logger.info(`[SYNC] Live Chat OFF: Melewatkan sinkronisasi riwayat pesan.`);
           }
-          this.emit('history.received', { sessionId, messages: allMessages });
 
           // Signal frontend to close modal
           this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
@@ -207,6 +214,11 @@ export class SessionManager extends EventEmitter {
       client.on('message', async (msg: any) => {
         if (msg.from === 'status@broadcast') return;
         
+        // Cek apakah Live Chat sedang aktif
+        if (!settingsService.isLiveChatEnabled()) {
+          return;
+        }
+
         let pushName = 'User';
         try {
           const contact = await msg.getContact();
@@ -245,17 +257,45 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
-        await active.client.logout();
+        logger.info(`[CLEANUP] Destroying client for session: ${sessionId}`);
+        // logout() will clear the session on WhatsApp server, destroy() closes the browser
+        try { await active.client.logout(); } catch (e) {}
         await active.client.destroy();
-      } catch (err) {}
+      } catch (err) {
+        logger.warn(`[CLEANUP] Error during destroy: ${err.message}`);
+      }
       this.sessions.delete(sessionId);
+      
+      // Give Windows/Puppeteer some time to release file locks (very common on Windows)
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
+
     const db = getDb();
     await db.query('DELETE FROM wa_sessions WHERE id = ?', [sessionId]);
     
     const sessionDir = path.join(AUTH_DIR, `session-${sessionId}`);
     if (fs.existsSync(sessionDir)) {
-      fs.rmSync(sessionDir, { recursive: true, force: true });
+      try {
+        // Attempt recursive delete with a retry loop for Windows
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+          try {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+            logger.info(`[CLEANUP] Successfully deleted auth directory for ${sessionId}`);
+            break;
+          } catch (e) {
+            attempts++;
+            if (attempts >= maxAttempts) throw e;
+            logger.warn(`[CLEANUP] Retrying folder deletion for ${sessionId} (Attempt ${attempts})...`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        }
+      } catch (err: any) {
+        logger.error(`[CLEANUP] Failed to delete auth directory: ${err.message}`);
+        // We don't throw here to allow the UI to continue, 
+        // the folder can be manually deleted later or will be overwritten next time
+      }
     }
   }
 
@@ -308,7 +348,22 @@ export class SessionManager extends EventEmitter {
       chatId = `${chatId}@c.us`;
     }
 
-    const result = await active.client.sendMessage(chatId, text);
+    const result = await (async () => {
+      try {
+        const chat = await active.client.getChatById(chatId);
+        await chat.sendSeen();
+        await chat.sendStateTyping();
+        
+        // Simulasikan waktu mengetik (1-3 detik)
+        const typingDelay = Math.floor(Math.random() * 2000) + 1000;
+        await new Promise(resolve => setTimeout(resolve, typingDelay));
+        
+        return await active.client.sendMessage(chatId, text);
+      } catch (err) {
+        // Fallback jika getChatById gagal (misal nomor baru)
+        return await active.client.sendMessage(chatId, text);
+      }
+    })();
     
     // Update daily count
     active.info.dailySentCount++;

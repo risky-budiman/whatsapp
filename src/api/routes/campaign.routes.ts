@@ -5,6 +5,23 @@ import { logger } from '../../utils/logger';
 
 const router = Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Campaigns
+ *   description: WhatsApp broadcasting campaigns
+ */
+
+/**
+ * @swagger
+ * /api/campaigns:
+ *   get:
+ *     summary: List all campaigns
+ *     tags: [Campaigns]
+ *     responses:
+ *       200:
+ *         description: List of campaigns
+ */
 // GET /api/campaigns — List campaigns
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -16,6 +33,40 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/campaigns:
+ *   post:
+ *     summary: Create a new campaign
+ *     tags: [Campaigns]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - template
+ *               - recipients
+ *             properties:
+ *               name:
+ *                 type: string
+ *               template:
+ *                 type: string
+ *               recipients:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     phone:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Campaign created
+ */
 // POST /api/campaigns — Create campaign
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -41,6 +92,22 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/campaigns/{id}:
+ *   get:
+ *     summary: Get campaign detail
+ *     tags: [Campaigns]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Campaign detail with messages
+ */
 // GET /api/campaigns/:id — Campaign detail
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -69,6 +136,22 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/campaigns/{id}/start:
+ *   post:
+ *     summary: Start campaign broadcast
+ *     tags: [Campaigns]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Campaign started
+ */
 // POST /api/campaigns/:id/start — Start broadcast
 router.post('/:id/start', async (req: Request, res: Response) => {
   try {
@@ -109,6 +192,22 @@ router.post('/:id/resume', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/campaigns/{id}/progress:
+ *   get:
+ *     summary: Get campaign progress via SSE
+ *     tags: [Campaigns]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: SSE stream for progress
+ */
 // GET /api/campaigns/:id/progress — Progress SSE stream
 router.get('/:id/progress', async (req: Request, res: Response) => {
   try {

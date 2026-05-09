@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WA Gateway - TEST SYNC 2026</title>
+  <title>WA Gateway - IDS</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -18,59 +18,119 @@
       <span>WA Gateway</span>
     </div>
     <ul class="nav-menu">
-      <li><a href="#" class="nav-link active" data-view="sessions"><i class="fa-solid fa-mobile-screen"></i> Sesi &
+      <li><a href="#" class="nav-link active" data-view="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</a></li>
+      <li><a href="#" class="nav-link" data-view="sessions"><i class="fa-solid fa-mobile-screen"></i> Sesi &
           Perangkat</a></li>
       <li><a href="#" class="nav-link" data-view="contacts"><i class="fa-solid fa-user"></i> Kontak Pribadi</a></li>
-      <li><a href="#" class="nav-link" data-view="groups"><i class="fa-solid fa-users-rectangle"></i> Daftar Grup</a></li>
-      <li><a href="#" class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</a></li>
-      <li><a href="#" class="nav-link" data-view="live-chat"><i class="fa-solid fa-comments"></i> Live Chat <span
-            class="badge" id="chat-badge"
-            style="display:none; background:var(--primary-color); padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; margin-left: 5px;">New</span></a>
+      <li><a href="#" class="nav-link" data-view="groups"><i class="fa-solid fa-users-rectangle"></i> Daftar Grup</a>
       </li>
+      <li><a href="#" class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</a>
+      </li>
+      <li><a href="#" class="nav-link" data-view="logs"><i class="fa-solid fa-list-check"></i> Riwayat Pesan</a></li>
+      <li>
+        <a href="#" class="nav-link" data-view="live-chat">
+          <i class="fa-solid fa-comments"></i>
+          <span>Live Chat</span>
+          <span class="badge" id="chat-badge"
+            style="display:none; background:var(--primary-color); padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; margin-left: 5px;">New</span>
+        </a>
+      </li>
+      <li><a href="/api-docs" target="_blank" class="nav-link-static"><i class="fa-solid fa-book"></i> API
+          Documentation</a></li>
     </ul>
   </aside>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
 
-    <!-- VIEW: SESSIONS -->
-    <section id="view-sessions" class="view-section active">
+    <!-- VIEW: DASHBOARD -->
+    <section id="view-dashboard" class="view-section active">
       <div class="header">
-        <h1>Sesi WhatsApp</h1>
-        <button class="btn btn-primary" onclick="openModal('modal-add-session')">
-          <i class="fa-solid fa-plus"></i> Tambah Nomor
-        </button>
-        <button class="btn btn-nuclear" onclick="hardResetAllData()">
-          <i class="fa-solid fa-radiation"></i> Reset Database
-        </button>
+        <h1>Dashboard Ringkasan</h1>
+        <p class="text-muted">Pantau performa gateway dan aktivitas pengiriman Anda secara real-time</p>
       </div>
 
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-title">Total Sesi Aktif</div>
-          <div class="stat-value text-primary" id="stat-sessions-active">...</div>
+          <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: var(--success); width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; font-size: 1.2rem;">
+            <i class="fa-solid fa-link"></i>
+          </div>
+          <div>
+            <div class="stat-title">Sesi Aktif</div>
+            <div class="stat-value" id="dash-active-sessions">...</div>
+          </div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Pesan Terkirim Hari Ini</div>
-          <div class="stat-value" id="stat-messages-today">...</div>
+          <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: var(--info); width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; font-size: 1.2rem;">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <div>
+            <div class="stat-title">Total Kontak</div>
+            <div class="stat-value" id="dash-total-contacts">...</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: var(--warning); width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; font-size: 1.2rem;">
+            <i class="fa-solid fa-paper-plane"></i>
+          </div>
+          <div>
+            <div class="stat-title">Pesan Hari Ini</div>
+            <div class="stat-value" id="dash-messages-today">...</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(139, 92, 246, 0.1); color: var(--primary); width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; font-size: 1.2rem;">
+            <i class="fa-solid fa-bullhorn"></i>
+          </div>
+          <div>
+            <div class="stat-title">Broadcast Sukses</div>
+            <div class="stat-value" id="dash-total-broadcast">...</div>
+          </div>
         </div>
       </div>
 
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Nama Perangkat</th>
-              <th>Nomor HP</th>
-              <th>Status</th>
-              <th>Limit Harian</th>
-              <th>Aksi</th>
-            </tr>
-          </thead>
-          <tbody id="sessions-tbody">
-            <!-- Rendered via JS -->
-          </tbody>
-        </table>
+      <div class="mt-4" style="margin-top: 30px;">
+        <div class="header" style="margin-bottom: 15px;">
+          <h2 style="font-size: 1.2rem;">Aktivitas Pengiriman Terakhir</h2>
+          <button class="btn btn-sm btn-outline" onclick="loadView('logs')">Lihat Semua</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Tujuan</th>
+                <th>Pesan</th>
+                <th>Waktu</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="dash-recent-logs">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW: SESSIONS -->
+    <section id="view-sessions" class="view-section">
+      <div class="header">
+        <h1>Sesi & Perangkat</h1>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-primary" onclick="openModal('modal-add-session')">
+            <i class="fa-solid fa-plus"></i> Tambah Nomor
+          </button>
+          <button class="btn btn-outline" onclick="openDirectMessageModal()">
+            <i class="fa-solid fa-paper-plane"></i> Kirim Pesan Cepat
+          </button>
+          <button class="btn btn-nuclear" onclick="hardResetAllData()">
+            <i class="fa-solid fa-radiation"></i> Reset Database
+          </button>
+        </div>
+      </div>
+
+      <div id="sessions-grid" class="sessions-grid">
+        <!-- Rendered via JS as CARDS -->
       </div>
     </section>
 
@@ -79,12 +139,16 @@
       <div class="header">
         <h1>Manajemen Kontak</h1>
         <div style="display: flex; gap: 10px; align-items: center;">
-          <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..." onkeyup="filterContacts()" style="width: 250px; margin-bottom: 0;">
+          <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..."
+            onkeyup="filterContacts()" style="width: 250px; margin-bottom: 0;">
           <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
           </button>
           <button class="btn btn-primary" id="btn-sync" onclick="syncLaravel()">
             <i class="fa-solid fa-rotate"></i> Sync Data
+          </button>
+          <button class="btn btn-primary" onclick="openAddContactModal()">
+            <i class="fa-solid fa-plus"></i> Tambah Kontak
           </button>
         </div>
       </div>
@@ -92,16 +156,31 @@
         <table>
           <thead>
             <tr>
-              <th>Nama Pelanggan</th>
-              <th>Nomor WA</th>
-              <th>Status</th>
+              <th style="width: 40px;">No</th>
+              <th style="width: 40px;"><input type="checkbox" id="select-all-contacts"
+                  onclick="toggleSelectAllContacts(this)"></th>
+              <th>Nama</th>
+              <th>Nomor HP</th>
+              <th>Tag</th>
               <th>Sumber</th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody id="contacts-tbody">
             <!-- Rendered via JS -->
           </tbody>
         </table>
+      </div>
+      <div class="pagination-controls"
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 0 10px;">
+        <span id="contact-pagination-info" class="text-muted" style="font-size: 0.9rem;">Menampilkan 0 dari 0
+          kontak</span>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-sm btn-outline" onclick="changeContactPage(-1)" id="btn-prev-contact"><i
+              class="fa-solid fa-chevron-left"></i> Prev</button>
+          <button class="btn btn-sm btn-outline" onclick="changeContactPage(1)" id="btn-next-contact">Next <i
+              class="fa-solid fa-chevron-right"></i></button>
+        </div>
       </div>
     </section>
 
@@ -110,7 +189,8 @@
       <div class="header">
         <h1>Manajemen Grup</h1>
         <div style="display: flex; gap: 10px; align-items: center;">
-          <input type="text" id="search-groups" class="form-control" placeholder="Cari nama grup..." onkeyup="filterGroups()" style="width: 250px; margin-bottom: 0;">
+          <input type="text" id="search-groups" class="form-control" placeholder="Cari nama grup..."
+            onkeyup="filterGroups()" style="width: 250px; margin-bottom: 0;">
           <button class="btn btn-outline" onclick="syncWhatsApp()">
             <i class="fa-solid fa-rotate"></i> Sync WhatsApp
           </button>
@@ -121,6 +201,7 @@
         <table>
           <thead>
             <tr>
+              <th style="width: 40px;">No</th>
               <th>Nama Grup</th>
               <th>JID Grup</th>
               <th>Status</th>
@@ -131,6 +212,16 @@
             <!-- Rendered via JS -->
           </tbody>
         </table>
+      </div>
+      <div class="pagination-controls"
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 0 10px;">
+        <span id="group-pagination-info" class="text-muted" style="font-size: 0.9rem;">Menampilkan 0 dari 0 grup</span>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-sm btn-outline" onclick="changeGroupPage(-1)" id="btn-prev-group"><i
+              class="fa-solid fa-chevron-left"></i> Prev</button>
+          <button class="btn btn-sm btn-outline" onclick="changeGroupPage(1)" id="btn-next-group">Next <i
+              class="fa-solid fa-chevron-right"></i></button>
+        </div>
       </div>
     </section>
 
@@ -146,6 +237,7 @@
         <table>
           <thead>
             <tr>
+              <th style="width: 40px;">No</th>
               <th>Nama Campaign</th>
               <th>Status</th>
               <th>Target</th>
@@ -161,17 +253,69 @@
       </div>
     </section>
 
+    <!-- VIEW: MESSAGE LOGS -->
+    <section id="view-logs" class="view-section">
+      <div class="header">
+        <div>
+          <h1>Riwayat Pesan Terkirim</h1>
+          <p class="text-muted">Pantau status pengiriman pesan secara real-time</p>
+        </div>
+        <button class="btn btn-outline" onclick="renderMessageLogs()">
+          <i class="fa-solid fa-rotate"></i> Refresh
+        </button>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;">No</th>
+              <th>Penerima</th>
+              <th>Isi Pesan</th>
+              <th>Device</th>
+              <th>Waktu</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="logs-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination-controls"
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 0 10px;">
+        <span id="log-pagination-info" class="text-muted" style="font-size: 0.9rem;">Menampilkan 0 dari 0 pesan</span>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-sm btn-outline" onclick="changeLogPage(-1)" id="btn-prev-log"><i
+              class="fa-solid fa-chevron-left"></i> Prev</button>
+          <button class="btn btn-sm btn-outline" onclick="changeLogPage(1)" id="btn-next-log">Next <i
+              class="fa-solid fa-chevron-right"></i></button>
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW: LIVE CHAT -->
     <section id="view-live-chat" class="view-section">
       <div class="header">
-        <h1>Live Chat (CS)</h1>
-        <p class="text-muted">Balas pesan pelanggan secara instan tanpa antrean broadcast</p>
+        <div>
+          <h1>Live Chat (CS)</h1>
+          <p class="text-muted">Balas pesan pelanggan secara instan tanpa antrean broadcast</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 10px 15px; border-radius: 12px; border: 1px solid var(--glass-border);">
+          <span style="font-size: 0.85rem; font-weight: 500;">Status Live Chat:</span>
+          <label class="switch-sm">
+            <input type="checkbox" id="live-chat-toggle" onchange="toggleLiveChatStatus(this.checked)">
+            <span class="slider-sm"></span>
+          </label>
+          <span id="live-chat-status-text" style="font-size: 0.85rem; font-weight: 700; color: var(--danger); min-width: 30px;">OFF</span>
+        </div>
       </div>
 
       <div class="chat-container">
         <!-- Sidebar Kiri: Daftar Chat -->
         <div class="chat-sidebar">
-          <div class="chat-header" style="display: flex; justify-content: space-between; align-items: center; padding: 15px;">
+          <div class="chat-header"
+            style="display: flex; justify-content: space-between; align-items: center; padding: 15px;">
             <h3 style="margin:0">Chats</h3>
             <button class="btn btn-outline" id="btn-sync-chat" onclick="syncWhatsApp()" title="Sync Chat History">
               <i class="fa-solid fa-rotate"></i>
@@ -186,7 +330,8 @@
         <div class="chat-area" id="chat-area" style="display: none;">
           <div class="chat-header" style="display: flex; justify-content: space-between; align-items: center;">
             <h3 id="active-chat-phone" style="margin:0">...</h3>
-            <button class="btn btn-sm btn-outline" onclick="clearChatHistory()" title="Hapus Riwayat" style="color: var(--danger)">
+            <button class="btn btn-sm btn-outline" onclick="clearChatHistory()" title="Hapus Riwayat"
+              style="color: var(--danger)">
               <i class="fa-solid fa-trash-can"></i>
             </button>
           </div>
@@ -229,6 +374,31 @@
     </div>
   </div>
 
+  <div id="modal-contact-form" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="contact-modal-title">Tambah Kontak Baru</h2>
+        <button class="close-btn" onclick="closeModal('modal-contact-form')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="saveContact(event)">
+        <input type="hidden" id="contact-id" />
+        <div class="form-group">
+          <label>Nama Kontak</label>
+          <input type="text" id="contact-name" class="form-control" placeholder="Nama..." />
+        </div>
+        <div class="form-group">
+          <label>Nomor HP (Internasional 62xxx)</label>
+          <input type="text" id="contact-phone" class="form-control" required placeholder="62811..." />
+        </div>
+        <div class="form-group">
+          <label>Tag (Pisahkan dengan koma)</label>
+          <input type="text" id="contact-tags" class="form-control" placeholder="Pelanggan, Prioritas, dll" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan Kontak</button>
+      </form>
+    </div>
+  </div>
+
   <div id="modal-qr" class="modal-overlay">
     <div class="modal" style="text-align: center;">
       <div class="modal-header">
@@ -254,17 +424,64 @@
           <input type="text" id="campaign-name" class="form-control" required placeholder="Misal: Promo Merdeka 2026" />
         </div>
         <div class="form-group">
-          <label>Target Kontak</label>
-          <select id="campaign-target" class="form-control" required>
-            <option value="all">Semua Kontak di Gateway</option>
+          <label>Target Broadcast</label>
+          <select id="campaign-target" class="form-control" required onchange="handleCampaignTargetChange(this.value)">
+            <option value="all">Semua Kontak Aktif</option>
+            <option value="selected">Kontak Terpilih (Ceklis di Tabel)</option>
+            <option value="tags">Berdasarkan Tag (Grup Tag)</option>
+            <option value="groups">Semua Grup Terdaftar</option>
+          </select>
+        </div>
+        <div id="tag-filter-group" class="form-group" style="display: none;">
+          <label>Nama Tag</label>
+          <input type="text" id="campaign-tag-filter" class="form-control" placeholder="Misal: Pelanggan" />
+        </div>
+        <div class="form-group">
+          <label>Pesan Broadcast (Gunakan {nama} untuk memanggil nama)</label>
+          <textarea id="campaign-message" class="form-control" required
+            placeholder="Halo {nama}, {{random_greeting}} ini adalah pesan simulasi..."></textarea>
+          <small style="color:var(--text-muted); font-size: 0.75rem; display: block; margin-top: 5px;">
+            Tag: <code>{nama}</code>, <code>{{random_greeting}}</code>, <code>{{random_closer}}</code>,
+            <code>{{random_emoji}}</code>
+          </small>
+        </div>
+        <div class="form-group">
+          <label>Variasi Salam (Pisahkan dengan koma)</label>
+          <input type="text" class="form-control" id="campaign-greetings"
+            value="Halo,Hai,Assalamualaikum,Selamat siang,Salam">
+        </div>
+        <div class="form-group">
+          <label>Variasi Penutup (Pisahkan dengan koma)</label>
+          <input type="text" class="form-control" id="campaign-closers"
+            value="Terima kasih 🙏,Salam hangat,Regards,Hormat kami">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan & Jalankan Campaign</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-direct-message" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Kirim Pesan Personal</h2>
+        <button class="close-btn" onclick="closeModal('modal-direct-message')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="sendDirectMessage(event)">
+        <div class="form-group">
+          <label>Pilih Perangkat Pengirim</label>
+          <select id="dm-session-id" class="form-control" required>
+            <!-- Rendered via JS -->
           </select>
         </div>
         <div class="form-group">
-          <label>Pesan Broadcast (Gunakan {nama} untuk memanggil nama kontak)</label>
-          <textarea id="campaign-message" class="form-control" required
-            placeholder="Halo {nama}, tagihan Anda bulan ini..."></textarea>
+          <label>Nomor Tujuan (62xxx)</label>
+          <input type="text" id="dm-target-phone" class="form-control" required placeholder="628123..." />
         </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan Campaign</button>
+        <div class="form-group">
+          <label>Isi Pesan</label>
+          <textarea id="dm-message" class="form-control" required placeholder="Ketik pesan di sini..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Kirim Sekarang</button>
       </form>
     </div>
   </div>
@@ -305,21 +522,62 @@
       contacts: {
         list: (params = {}) => {
           const limit = params.limit || 100;
-          return wa_api.fetch(`/contacts?limit=${limit}`);
+          const offset = params.offset || 0;
+          return wa_api.fetch(`/contacts?limit=${limit}&offset=${offset}`);
         },
-        listGroups: () => wa_api.fetch('/contacts/groups'),
+        listGroups: (params = {}) => {
+          const limit = params.limit || 100;
+          const offset = params.offset || 0;
+          return wa_api.fetch(`/contacts/groups?limit=${limit}&offset=${offset}`);
+        },
         syncLaravel: () => wa_api.fetch('/contacts/sync-laravel', { method: 'POST' }),
         delete: (id) => wa_api.fetch(`/contacts/${id}`, { method: 'DELETE' })
       },
       chats: {
         list: () => wa_api.fetch('/chats'),
         getHistory: (phone) => wa_api.fetch(`/chats/${phone}`),
+        getLogs: (params = {}) => {
+          const limit = params.limit || 50;
+          const offset = params.offset || 0;
+          return wa_api.fetch(`/chats/logs?limit=${limit}&offset=${offset}`);
+        },
         sendReply: (phone, message) => wa_api.fetch(`/chats/${phone}`, { method: 'POST', body: JSON.stringify({ message }) }),
         deleteMessage: (id) => wa_api.fetch(`/chats/message/${id}`, { method: 'DELETE' }),
         clearHistory: (phone) => wa_api.fetch(`/chats/history/${phone}`, { method: 'DELETE' })
+      },
+      settings: {
+        get: () => wa_api.fetch('/settings'),
+        update: (data) => wa_api.fetch('/settings', { method: 'POST', body: JSON.stringify(data) }),
+        getStats: () => wa_api.fetch('/settings/stats')
+      },
+      campaigns: {
+        list: () => wa_api.fetch('/campaigns'),
+        create: (data) => wa_api.fetch('/campaigns', { method: 'POST', body: JSON.stringify(data) }),
+        start: (id) => wa_api.fetch(`/campaigns/${id}/start`, { method: 'POST' }),
+        pause: (id) => wa_api.fetch(`/campaigns/${id}/pause`, { method: 'POST' }),
+        resume: (id) => wa_api.fetch(`/campaigns/${id}/resume`, { method: 'POST' })
       }
     };
+
+    async function toggleLiveChatStatus(status) {
+      try {
+        await wa_api.settings.update({ liveChatEnabled: status });
+        const text = document.getElementById('live-chat-status-text');
+        text.innerText = status ? 'ON' : 'OFF';
+        text.style.color = status ? 'var(--success)' : 'var(--danger)';
+        
+        // Sembunyikan badge jika di-offkan
+        if (!status) {
+          document.getElementById('chat-badge').style.display = 'none';
+        }
+      } catch (err) {
+        alert("Gagal mengubah status Live Chat: " + err.message);
+      }
+    }
   </script>
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
   <script src="/js/app.js?v=1.4"></script>
 </body>
 

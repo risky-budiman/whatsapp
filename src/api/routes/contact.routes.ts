@@ -7,6 +7,34 @@ import { logger } from '../../utils/logger';
 
 const router = Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Contacts
+ *   description: WhatsApp contact management
+ */
+
+/**
+ * @swagger
+ * /api/contacts:
+ *   get:
+ *     summary: List all individual contacts
+ *     tags: [Contacts]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 500
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: List of contacts
+ */
 // GET /api/contacts — List individual contacts (excluding groups) with resolved JIDs
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -19,6 +47,7 @@ router.get('/', async (req: Request, res: Response) => {
         wc.id,
         wc.name,
         wc.phone_number,
+        wc.tags,
         wc.source,
         wc.created_at
       FROM wa_contacts wc
@@ -37,6 +66,31 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/contacts:
+ *   post:
+ *     summary: Add a single contact
+ *     tags: [Contacts]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 example: "62812345678"
+ *               name:
+ *                 type: string
+ *                 example: "John Doe"
+ *     responses:
+ *       200:
+ *         description: Contact saved
+ */
 // POST /api/contacts — Add single contact
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -64,6 +118,32 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/contacts/import:
+ *   post:
+ *     summary: Import contacts from JSON array
+ *     tags: [Contacts]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               contacts:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     phone:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Contacts imported
+ */
 // POST /api/contacts/import — Import CSV
 // Expects raw text CSV in body or JSON array of {phone, name}
 router.post('/import', async (req: Request, res: Response) => {
@@ -97,6 +177,16 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/contacts/sync-laravel:
+ *   post:
+ *     summary: Sync contacts from Laravel database
+ *     tags: [Contacts]
+ *     responses:
+ *       200:
+ *         description: Sync completed
+ */
 // POST /api/contacts/sync-laravel — Sync from Laravel DB
 router.post('/sync-laravel', async (_req: Request, res: Response) => {
   try {
@@ -108,14 +198,35 @@ router.post('/sync-laravel', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/contacts/groups — List groups
+/**
+ * @swagger
+ * /api/contacts/groups:
+ *   get:
+ *     summary: List all WhatsApp groups
+ *     tags: [Contacts]
+ *     responses:
+ *       200:
+ *         description: List of groups
+ */
+// GET /api/contacts/groups — List groups with pagination
 router.get('/groups', async (req: Request, res: Response) => {
   try {
     const db = getDb();
+    const limit = parseInt((req.query.limit as string) || '500', 10);
+    const offset = parseInt((req.query.offset as string) || '0', 10);
+
     const [rows] = await db.query(
-      "SELECT * FROM wa_contacts WHERE phone_number LIKE '%@g.us' ORDER BY name ASC"
+      `SELECT * FROM wa_contacts 
+       WHERE phone_number LIKE '%@g.us' 
+       ORDER BY name ASC 
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
     );
-    res.json({ success: true, data: rows });
+
+    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@g.us'");
+    const total = (countRows as any[])[0].total;
+
+    res.json({ success: true, data: rows, meta: { total, limit, offset } });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
