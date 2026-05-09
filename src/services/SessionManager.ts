@@ -61,6 +61,13 @@ export class SessionManager extends EventEmitter {
   }
 
   async connectSession(sessionId: string, name: string): Promise<SessionInfo> {
+    // 1. Jika sesi sudah ada dan aktif, jangan buat lagi
+    const existing = this.sessions.get(sessionId);
+    if (existing && (existing.info.status === 'active' || existing.info.status === 'qr' || existing.info.status === 'connecting')) {
+      logger.info(`[${name}] Sesi sudah dalam proses atau aktif. Mengabaikan permintaan koneksi baru.`);
+      return existing.info;
+    }
+    
     try {
       logger.info(`[DEBUG] Memulai WhatsApp-Web.js untuk: ${sessionId} (${name})`);
       
@@ -83,6 +90,9 @@ export class SessionManager extends EventEmitter {
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
             '--disable-gpu',
             '--disable-extensions',
             '--disable-software-rasterizer'
@@ -90,14 +100,18 @@ export class SessionManager extends EventEmitter {
         }
       });
 
+      const db = getDb();
+      const [rows]: any = await db.query('SELECT daily_sent_count, daily_limit, phone_number, last_sent_at FROM wa_sessions WHERE id = ?', [sessionId]);
+      const sessionDb = rows[0] || {};
+
       const info: SessionInfo = {
         id: sessionId,
         name,
-        phoneNumber: null,
+        phoneNumber: sessionDb.phone_number || null,
         status: 'connecting',
-        dailySentCount: 0,
-        dailyLimit: 200,
-        lastSentAt: null,
+        dailySentCount: sessionDb.daily_sent_count || 0,
+        dailyLimit: sessionDb.daily_limit || 200,
+        lastSentAt: sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null,
       };
 
       this.sessions.set(sessionId, { client, info });
@@ -234,23 +248,83 @@ export class SessionManager extends EventEmitter {
         });
       });
 
+      // Track message status (Sent, Delivered, Read)
+      client.on('message_ack', async (msg: any, ack: number) => {
+        let status = 'sent';
+        if (ack === 2) status = 'delivered';
+        if (ack === 3) status = 'read';
+        if (ack === 0) status = 'failed';
+
+        try {
+          const db = getDb();
+          const messageId = msg.id._serialized || msg.id.id;
+          
+          logger.info(`[ACK] Status update for ${messageId}: ${ack} (${status})`);
+
+          // Update wa_chats (Live Chat)
+          await db.query('UPDATE wa_chats SET status = ? WHERE message_id = ?', [status, messageId]);
+          
+          // Update wa_message_logs (History)
+          const [res]: any = await db.query(`
+            UPDATE wa_message_logs 
+            SET status = ? 
+            WHERE metadata->'$.waMessageId' = ? OR metadata->'$.waMessageId' = ?
+          `, [status, messageId, msg.id.id]);
+          
+          if (res.affectedRows > 0) {
+            logger.info(`[ACK] Successfully updated log status to ${status} for ${messageId}`);
+          }
+          
+          this.emit('message.ack', {
+            sessionId,
+            messageId,
+            status
+          });
+        } catch (e: any) {
+          logger.warn(`[ACK] Error updating status: ${e.message}`);
+        }
+      });
+
       // Start the client
-      client.initialize().catch(err => {
-        logger.error(`[CRITICAL] Error initializing client ${sessionId}: ${err.message}`);
+      client.initialize().catch((err: any) => {
+        if (!err.message.includes('EBUSY') && !err.message.includes('locked')) {
+          logger.error(`[CRITICAL] Error initializing client ${sessionId}: ${err.message}`);
+        }
       });
 
       return info;
     } catch (err: any) {
-      logger.error(`[CRITICAL] connectSession failed: ${err.message}`);
-      throw err;
+      if (!err.message.includes('EBUSY')) {
+        logger.error(`[CRITICAL] connectSession failed: ${err.message}`);
+      }
+      return { id: sessionId, name: 'Retry Required', status: 'disconnected' } as any;
     }
   }
 
-  async createSession(name: string): Promise<SessionInfo> {
+  async createSession(name: string, dailyLimit: number = 200): Promise<SessionInfo> {
     const id = uuidv4();
     const db = getDb();
-    await db.query('INSERT INTO wa_sessions (id, name, status, daily_limit) VALUES (?, ?, ?, ?)', [id, name, 'connecting', 200]);
+    await db.query('INSERT INTO wa_sessions (id, name, status, daily_limit) VALUES (?, ?, ?, ?)', [id, name, 'connecting', dailyLimit]);
     return this.connectSession(id, name);
+  }
+
+  async disconnectSession(sessionId: string): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (active) {
+      try {
+        logger.info(`[DISCONNECT] Shutting down browser for session: ${sessionId}`);
+        await active.client.destroy();
+      } catch (err: any) {
+        logger.warn(`[DISCONNECT] Error during destroy: ${err.message}`);
+      }
+      this.sessions.delete(sessionId);
+      
+      // Update DB status to disconnected
+      const db = getDb();
+      await db.query('UPDATE wa_sessions SET status = "disconnected" WHERE id = ?', [sessionId]);
+      
+      this.emit('status.update', { sessionId, status: 'disconnected' });
+    }
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -261,7 +335,7 @@ export class SessionManager extends EventEmitter {
         // logout() will clear the session on WhatsApp server, destroy() closes the browser
         try { await active.client.logout(); } catch (e) {}
         await active.client.destroy();
-      } catch (err) {
+      } catch (err: any) {
         logger.warn(`[CLEANUP] Error during destroy: ${err.message}`);
       }
       this.sessions.delete(sessionId);
@@ -325,12 +399,15 @@ export class SessionManager extends EventEmitter {
     const name = active?.info?.name || 'Unknown';
     
     if (active) {
-      logger.info(`🔄 Restarting session ${name}...`);
+      logger.info(`🔄 [FORCE] Restarting session ${name}...`);
       try {
-        await active.client.destroy();
+        if (active.client) {
+          await active.client.destroy().catch(() => {});
+        }
       } catch (e) {}
       this.sessions.delete(sessionId);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Tunggu sebentar agar Windows melepas lock folder
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
     return this.connectSession(sessionId, name);
@@ -381,6 +458,32 @@ export class SessionManager extends EventEmitter {
       .sort((a, b) => a.info.dailySentCount - b.info.dailySentCount);
 
     return activeSessions.length > 0 ? activeSessions[0].info : null;
+  }
+
+  async updateSession(sessionId: string, data: { name?: string; dailyLimit?: number }): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (active) {
+      if (data.name) active.info.name = data.name;
+      if (data.dailyLimit) active.info.dailyLimit = data.dailyLimit;
+    }
+
+    const db = getDb();
+    const sets: string[] = [];
+    const values: any[] = [];
+
+    if (data.name) {
+      sets.push('name = ?');
+      values.push(data.name);
+    }
+    if (data.dailyLimit) {
+      sets.push('daily_limit = ?');
+      values.push(data.dailyLimit);
+    }
+
+    if (sets.length > 0) {
+      values.push(sessionId);
+      await db.query(`UPDATE wa_sessions SET ${sets.join(', ')} WHERE id = ?`, values);
+    }
   }
 
   async markAsRead(sessionId: string, chatId: string, messageIds?: string[]): Promise<void> {

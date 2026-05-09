@@ -84,6 +84,55 @@ function closeModal(id) {
   if (modal) modal.classList.remove('active');
 }
 
+/**
+ * Custom Confirmation Dialog (Returns Promise)
+ */
+function showConfirm(message, title = 'Konfirmasi', type = 'warning') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-confirm');
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-message');
+    const iconEl = document.getElementById('confirm-icon');
+    const btnOk = document.getElementById('btn-confirm-ok');
+    const btnCancel = document.getElementById('btn-confirm-cancel');
+
+    titleEl.innerText = title;
+    msgEl.innerText = message;
+    
+    // Set icon & color based on type
+    if (type === 'danger') {
+      iconEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+      iconEl.style.color = 'var(--danger)';
+      btnOk.className = 'btn btn-danger';
+    } else {
+      iconEl.innerHTML = '<i class="fa-solid fa-circle-question"></i>';
+      iconEl.style.color = 'var(--warning)';
+      btnOk.className = 'btn btn-primary';
+    }
+
+    const handleOk = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const handleCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const cleanup = () => {
+      closeModal('modal-confirm');
+      btnOk.removeEventListener('click', handleOk);
+      btnCancel.removeEventListener('click', handleCancel);
+    };
+
+    btnOk.addEventListener('click', handleOk);
+    btnCancel.addEventListener('click', handleCancel);
+    
+    openModal('modal-confirm');
+  });
+}
+
 // ─── NAVIGATION & ROUTING ───
 function initNavigation() {
   const links = document.querySelectorAll('.nav-link');
@@ -135,6 +184,7 @@ async function renderMessageLogs() {
   
   try {
     const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
+    console.log('[DEBUG] Logs Response:', res);
     const logs = res.data || [];
     const total = (res.meta && typeof res.meta.total !== 'undefined') ? res.meta.total : logs.length;
 
@@ -144,13 +194,24 @@ async function renderMessageLogs() {
     }
 
     tbody.innerHTML = logs.map((l, index) => {
-      const time = new Date(l.created_at).toLocaleString();
+      const time = l.created_at ? new Date(l.created_at).toLocaleString() : '-';
       let statusHtml = '';
       
       if (l.status === 'sent') {
-        statusHtml = `<span class="badge active" title="Berhasil Terkirim"><i class="fa-solid fa-check"></i> Sent</span>`;
+        statusHtml = `<span class="badge secondary" title="Terkirim (Centang 1)"><i class="fa-solid fa-check"></i> Sent</span>`;
+      } else if (l.status === 'delivered') {
+        statusHtml = `<span class="badge active" title="Diterima (Centang 2)"><i class="fa-solid fa-check-double"></i> Delivered</span>`;
+      } else if (l.status === 'read') {
+        statusHtml = `<span class="badge active" style="background: rgba(52, 183, 241, 0.2); color: #34b7f1; border-color: rgba(52, 183, 241, 0.3);" title="Dibaca (Centang Biru)"><i class="fa-solid fa-check-double"></i> Read</span>`;
       } else if (l.status === 'failed') {
-        statusHtml = `<span class="badge danger" title="${l.error_message || 'Error'}"><i class="fa-solid fa-triangle-exclamation"></i> Failed</span>`;
+        statusHtml = `
+          <div class="status-action">
+            <span class="badge danger"><i class="fa-solid fa-triangle-exclamation"></i> Failed</span>
+            <button class="btn-icon mini warning" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
+              <i class="fa-solid fa-rotate-right"></i>
+            </button>
+          </div>
+        `;
       } else {
         statusHtml = `<span class="badge secondary">${l.status}</span>`;
       }
@@ -158,9 +219,9 @@ async function renderMessageLogs() {
       return `
         <tr>
           <td>${logOffset + index + 1}</td>
-          <td>${l.target_phone.split('@')[0]}</td>
-          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content}">${l.message_content}</td>
-          <td><span class="badge secondary">${l.session_name || 'System'}</span></td>
+          <td>${l.target_phone ? l.target_phone.split('@')[0] : '-'}</td>
+          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content || ''}</td>
+          <td><span class="badge secondary" style="font-size: 0.65rem;">${l.session_id ? l.session_id.substring(0,8) : 'System'}</span></td>
           <td style="font-size: 0.8rem;">${time}</td>
           <td>${statusHtml}</td>
         </tr>
@@ -173,6 +234,36 @@ async function renderMessageLogs() {
     document.getElementById('btn-next-log').disabled = (logOffset + logLimit) >= total;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
+  }
+}
+
+async function resendLogMessage(logId) {
+  try {
+    const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
+    const log = res.data.find(l => l.id === logId);
+    
+    if (!log) {
+      showToast("Data pesan tidak ditemukan", "error");
+      return;
+    }
+
+    const confirmed = await showConfirm(`Kirim ulang pesan ke ${log.target_phone}?`, 'Kirim Ulang Pesan');
+    if (!confirmed) return;
+
+    showToast("Mencoba kirim ulang...");
+    
+    await wa_api.fetch(`/chats/${log.target_phone}`, {
+      method: 'POST',
+      body: JSON.stringify({ 
+        message: log.message_content,
+        sessionId: log.session_id 
+      })
+    });
+
+    showToast("Pesan berhasil dikirim ulang!");
+    renderMessageLogs();
+  } catch (err) {
+    showToast("Gagal kirim ulang: " + err.message, "error");
   }
 }
 
@@ -249,7 +340,7 @@ async function renderSessions() {
 
     grid.innerHTML = sessions.map((s) => {
       const statusText = s.status.charAt(0).toUpperCase() + s.status.slice(1);
-      const isConnected = s.status === 'active';
+      const isTryingToConnect = ['active', 'qr', 'connecting'].includes(s.status);
       
       return `
         <div class="session-card ${s.status}">
@@ -273,17 +364,23 @@ async function renderSessions() {
             </div>
           </div>
 
-          <div class="session-actions">
-            ${!isConnected ? `
-              <button class="btn btn-primary" onclick="openQrModal('${s.id}')">
+          <div class="session-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            ${!isTryingToConnect ? `
+              <button class="btn btn-primary" style="flex: 1" onclick="openQrModal('${s.id}')">
                 <i class="fa-solid fa-qrcode"></i> Hubungkan
               </button>
             ` : `
-              <button class="btn btn-outline" onclick="clearSessionData('${s.id}')" title="Hapus Chat & Kontak Sesi Ini">
-                <i class="fa-solid fa-broom"></i> Bersihkan
+              <button class="btn btn-warning" style="flex: 2" onclick="disconnectSession('${s.id}')" title="Putuskan Koneksi">
+                <i class="fa-solid fa-power-off"></i> Putuskan
+              </button>
+              <button class="btn btn-outline" style="flex: 0" onclick="clearSessionData('${s.id}')" title="Bersihkan Chat & Kontak">
+                <i class="fa-solid fa-broom"></i>
               </button>
             `}
-            <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')" title="Hapus Perangkat">
+            <button class="btn btn-outline-secondary" style="flex: 0; padding: 0 12px;" onclick="openEditSessionModal('${s.id}')" title="Edit">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-danger" style="flex: 0; padding: 0 12px;" onclick="deleteSession('${s.id}')" title="Hapus">
               <i class="fa-solid fa-trash"></i>
             </button>
           </div>
@@ -302,7 +399,10 @@ async function renderSessions() {
 async function createSession(e) {
   e.preventDefault();
   const input = document.getElementById('session-name');
+  const limitInput = document.getElementById('session-limit');
   const name = input.value.trim();
+  const dailyLimit = limitInput ? parseInt(limitInput.value) : 200;
+
   if (!name) return;
   
   const btn = e.target.querySelector('button');
@@ -311,13 +411,53 @@ async function createSession(e) {
   btn.disabled = true;
 
   try {
-    const res = await wa_api.sessions.create(name);
+    const res = await wa_api.sessions.create({ name, dailyLimit });
     closeModal('modal-add-session');
     input.value = '';
     renderSessions();
     openQrModal(res.data.id);
   } catch (err) {
     showToast(err.message, "error");
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+}
+
+async function openEditSessionModal(id) {
+  try {
+    const res = await wa_api.sessions.list();
+    const session = res.data.find(s => s.id === id);
+    if (!session) return;
+
+    document.getElementById('edit-session-id').value = id;
+    document.getElementById('edit-session-name').value = session.name;
+    document.getElementById('edit-session-limit').value = session.daily_limit;
+    
+    openModal('modal-edit-session');
+  } catch (err) {
+    showToast("Gagal mengambil data sesi: " + err.message, "error");
+  }
+}
+
+async function saveSessionEdit(e) {
+  e.preventDefault();
+  const id = document.getElementById('edit-session-id').value;
+  const name = document.getElementById('edit-session-name').value;
+  const dailyLimit = document.getElementById('edit-session-limit').value;
+
+  const btn = e.target.querySelector('button');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = 'Menyimpan...';
+  btn.disabled = true;
+
+  try {
+    await wa_api.sessions.update(id, { name, dailyLimit });
+    closeModal('modal-edit-session');
+    showToast("Perangkat berhasil diperbarui!");
+    renderSessions();
+  } catch (err) {
+    showToast("Gagal memperbarui perangkat: " + err.message, "error");
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
@@ -383,8 +523,22 @@ async function openQrModal(id) {
   }
 }
 
+async function disconnectSession(id) {
+  const confirmed = await showConfirm('Putuskan koneksi perangkat ini? Browser akan ditutup untuk menghemat memori.', 'Putuskan Koneksi');
+  if (!confirmed) return;
+  try {
+    showToast("Memutuskan koneksi...");
+    await wa_api.sessions.disconnect(id);
+    showToast("Koneksi diputuskan.");
+    renderSessions();
+  } catch (err) {
+    showToast("Gagal memutuskan koneksi: " + err.message, "error");
+  }
+}
+
 async function deleteSession(id) {
-  if (!confirm('Hapus sesi ini?')) return;
+  const confirmed = await showConfirm('Hapus sesi ini secara permanen?', 'Hapus Perangkat', 'danger');
+  if (!confirmed) return;
   try {
     await wa_api.sessions.delete(id);
     renderSessions();
@@ -394,7 +548,8 @@ async function deleteSession(id) {
 }
 
 async function clearSessionData(id) {
-  if (!confirm('⚠️ PERINGATAN: Hapus semua pesan dan kontak untuk perangkat ini? Tindakan ini tidak dapat dibatalkan.')) return;
+  const confirmed = await showConfirm('Hapus semua pesan dan kontak untuk perangkat ini? Tindakan ini tidak dapat dibatalkan.', 'Bersihkan Data', 'danger');
+  if (!confirmed) return;
   try {
     const res = await wa_api.sessions.clearData(id);
     showToast(`Berhasil! ${res.details.chats_deleted} pesan dan ${res.details.contacts_deleted} kontak dihapus.`);
@@ -407,11 +562,11 @@ async function clearSessionData(id) {
 }
 
 async function hardResetAllData() {
-  const confirm1 = confirm('🚨 PERINGATAN KERAS: Anda akan menghapus SELURUH chat, kontak, dan pemetaan nomor di database. Tindakan ini tidak dapat dibatalkan.\n\nApakah Anda yakin?');
-  if (!confirm1) return;
+  const confirmed1 = await showConfirm('Anda akan menghapus SELURUH chat, kontak, dan pemetaan nomor di database. Lanjutkan?', 'RESET DATABASE TOTAL', 'danger');
+  if (!confirmed1) return;
   
-  const confirm2 = confirm('KONFIRMASI TERAKHIR: Semua data pesan akan hilang selamanya (Sesi tetap aman). Lanjutkan?');
-  if (!confirm2) return;
+  const confirmed2 = await showConfirm('KONFIRMASI TERAKHIR: Semua data pesan akan hilang selamanya. Lanjutkan?', 'KONFIRMASI AKHIR', 'danger');
+  if (!confirmed2) return;
 
   try {
     const res = await wa_api.sessions.resetAllData();
@@ -534,7 +689,8 @@ async function saveContact(e) {
 }
 
 async function deleteContact(id) {
-  if (!confirm('Hapus kontak ini?')) return;
+  const confirmed = await showConfirm('Hapus kontak ini dari daftar?', 'Hapus Kontak', 'danger');
+  if (!confirmed) return;
   try {
     await wa_api.contacts.delete(id);
     renderContacts();
@@ -947,9 +1103,6 @@ function initChatStream() {
       const overlay = document.getElementById('sync-overlay');
       const msg = document.getElementById('sync-progress-msg');
       
-      if (overlay) overlay.style.display = 'flex';
-      if (msg) msg.innerText = data.message;
-
       if (data.status === 'completed') {
         setTimeout(() => {
           if (overlay) overlay.style.display = 'none';
@@ -957,6 +1110,36 @@ function initChatStream() {
           renderSessions();
         }, 2000);
       }
+      return;
+    }
+
+    // Handle message status updates (Checks)
+    if (data.type === 'message_ack') {
+      const logsTab = document.querySelector('.nav-link[data-view="message-logs"]');
+      if (logsTab && logsTab.classList.contains('active')) {
+        renderMessageLogs();
+      }
+      return;
+    }
+
+    // Handle QR Updates
+    if (data.type === 'qr') {
+      const qrContainer = document.getElementById('qr-image-container');
+      const qrStatus = document.getElementById('qr-status');
+      if (qrContainer) {
+        qrContainer.innerHTML = `<img src="${data.qr}" alt="QR Code" style="width: 256px; height: 256px; border: 10px solid white; border-radius: 10px; margin: 20px auto;">`;
+        if (qrStatus) qrStatus.innerText = 'Silakan scan melalui WhatsApp Anda';
+      }
+      return;
+    }
+
+    // Handle Status Updates (Active)
+    if (data.type === 'status' && data.status === 'active') {
+      showToast(`Perangkat Berhasil Terhubung!`, 'success');
+      renderSessions();
+      // Tutup modal QR secara otomatis jika sedang terbuka
+      const modal = document.getElementById('modal-qr');
+      if (modal) modal.style.display = 'none';
       return;
     }
 
@@ -997,7 +1180,7 @@ async function openDirectMessageModal(prefillPhone = '') {
       return;
     }
 
-    select.innerHTML = activeSessions.map(s => `
+    select.innerHTML = '<option value="auto">Otomatis (Rotasi Perangkat)</option>' + activeSessions.map(s => `
       <option value="${s.id}">${s.name} (${s.phone_number || 'Tanpa Nomor'})</option>
     `).join('');
     

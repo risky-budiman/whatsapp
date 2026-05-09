@@ -7,7 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "migrate": "ts-node src/database/migrate.ts"
+    "migrate": "ts-node src/database/migrate.ts",
+    "check-db": "ts-node scratch/check_db.ts"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

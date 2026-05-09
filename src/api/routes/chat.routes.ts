@@ -37,6 +37,48 @@ export function emitChatEvent(data: any) {
  *       200:
  *         description: List of latest conversations
  */
+// GET /api/chats/logs — List all message logs
+router.get('/logs', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    
+    // Auto-fix schema for status enum if needed
+    await db.query(`
+      ALTER TABLE wa_message_logs 
+      MODIFY COLUMN status ENUM('sent','failed','received','delivered','read') DEFAULT 'sent'
+    `).catch(() => {});
+
+    const limit = parseInt((req.query.limit as string) || '50', 10);
+    const offset = parseInt((req.query.offset as string) || '0', 10);
+
+    const [rows]: any = await db.query(
+      `SELECT id, target_phone, message_content, status, created_at, session_id
+       FROM wa_message_logs 
+       ORDER BY created_at DESC 
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+
+    const [totalRows]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
+    const total = Number(totalRows[0]?.count || 0);
+    const [dbName]: any = await db.query('SELECT DATABASE() as db');
+
+    res.json({
+      success: true,
+      data: rows || [],
+      meta: {
+        total,
+        limit,
+        offset,
+        dbName: dbName[0]?.db || 'unknown'
+      }
+    });
+  } catch (err: any) {
+    logger.error(`GET /chats/logs error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // GET /api/chats — Get recent conversations
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -136,9 +178,12 @@ router.get('/:phone', async (req: Request, res: Response) => {
  *             properties:
  *               message:
  *                 type: string
+ *               sessionId:
+ *                 type: string
+ *                 description: ID perangkat (Opsional). Jika dikosongkan, sistem akan otomatis memilih perangkat dengan beban pengiriman terendah (Rotation).
  *     responses:
  *       200:
- *         description: Message sent
+ *         description: Pesan berhasil dikirim (Sent/Queued)
  */
 // POST /api/chats/:phone — Send manual reply
 router.post('/:phone', async (req: Request, res: Response) => {
@@ -147,41 +192,50 @@ router.post('/:phone', async (req: Request, res: Response) => {
   
   try {
     const sm = getSessionManager();
-    let session: any;
-    let status = '';
-    let finalSessionId = '';
+    const finalSessionId = (sessionId && sessionId !== 'auto') ? sessionId : sm.getBestSession()?.id;
 
-    if (sessionId) {
-      const active = sm.getSession(sessionId);
-      if (active) {
-        session = active;
-        status = active.info.status;
-        finalSessionId = active.info.id;
-      }
-    } else {
-      const allActive = sm.getAllSessions().find(s => s.status === 'active');
-      if (allActive) {
-        session = sm.getSession(allActive.id);
-        status = allActive.status;
-        finalSessionId = allActive.id;
-      }
-    }
-    
-    if (!session || status !== 'active') {
-      return res.status(500).json({ 
+    if (!finalSessionId) {
+      return res.status(400).json({ 
         success: false, 
-        message: 'Device/Sesi tidak ditemukan atau tidak aktif',
-        debug: { requestedId: sessionId, foundStatus: status } 
+        message: 'Tidak ada perangkat aktif yang tersedia' 
+      });
+    }
+
+    const session = sm.getSession(finalSessionId);
+    if (!session || session.info.status !== 'active') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Perangkat tidak ditemukan atau tidak aktif' 
       });
     }
 
     const targetJid = toWhatsAppJid(phone);
-    const success = await sm.sendMessage(finalSessionId, targetJid, message);
+    const result = await sm.sendMessage(finalSessionId, targetJid, message);
+    const waMessageId = result?.id?._serialized || result?.id?.id || null;
     
-    if (success) {
+    if (result) {
       const db = getDb();
       const chatId = uuidv4();
+      
+      // 1. Simpan ke wa_chats (Live Chat)
+      await db.query(`
+        INSERT INTO wa_chats (id, session_id, phone_number, message_id, message_text, is_from_me, status)
+        VALUES (?, ?, ?, ?, ?, true, 'sent')
+      `, [chatId, finalSessionId, phone, waMessageId, message]);
+
+      // 2. Simpan ke wa_message_logs (Riwayat)
+      try {
+        await db.query(`
+          INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status, metadata)
+          VALUES (?, ?, ?, ?, 'outgoing', 'sent', ?)
+        `, [uuidv4(), finalSessionId, phone, message, JSON.stringify({ waMessageId })]);
+      } catch (logErr: any) {
+        logger.error(`[LOG_ERROR] Gagal simpan ke wa_message_logs: ${logErr.message}`);
+      }
+      
+      // 3. Emit to Live Chat UI (SSE)
       const chatData = {
+        type: 'message',
         id: chatId,
         session_id: finalSessionId,
         phone_number: phone,
@@ -190,25 +244,8 @@ router.post('/:phone', async (req: Request, res: Response) => {
         status: 'sent',
         created_at: new Date()
       };
-      
-      // 1. Simpan ke wa_chats (Live Chat)
-      await db.query(`
-        INSERT INTO wa_chats (id, session_id, phone_number, message_text, is_from_me, status)
-        VALUES (?, ?, ?, ?, true, 'sent')
-      `, [chatId, finalSessionId, phone, message]);
-
-      // 2. Simpan ke wa_message_logs (Riwayat)
-      try {
-        await db.query(`
-          INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status)
-          VALUES (?, ?, ?, ?, 'outgoing', 'sent')
-        `, [uuidv4(), finalSessionId, phone, message]);
-      } catch (logErr: any) {
-        logger.error(`[LOG_ERROR] Gagal simpan ke wa_message_logs: ${logErr.message}`);
-      }
-
       emitChatEvent(chatData);
-      res.json({ success: true, data: chatData });
+      res.json({ success: true, message: 'Message sent', messageId: waMessageId });
     } else {
       res.status(500).json({ success: false, message: 'Failed to send' });
     }
@@ -298,69 +335,32 @@ router.get('/stream/events', (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ type: 'sync_progress', ...data })}\n\n`);
   };
 
+  const onAck = (data: any) => {
+    res.write(`data: ${JSON.stringify({ type: 'message_ack', ...data })}\n\n`);
+  };
+
+  const onQr = (data: any) => {
+    res.write(`data: ${JSON.stringify({ type: 'qr', ...data })}\n\n`);
+  };
+
+  const onStatus = (data: any) => {
+    res.write(`data: ${JSON.stringify({ type: 'status', ...data })}\n\n`);
+  };
+
   const sm = getSessionManager();
   sm.on('sync.progress', onSync);
+  sm.on('message.ack', onAck);
+  sm.on('qr.updated', onQr);
+  sm.on('connected', onStatus);
   chatClients.add(res);
 
   req.on('close', () => {
     sm.removeListener('sync.progress', onSync);
+    sm.removeListener('message.ack', onAck);
+    sm.removeListener('qr.updated', onQr);
+    sm.removeListener('connected', onStatus);
     chatClients.delete(res);
   });
-});
-
-// GET /api/chats/logs — List all message logs
-router.get('/logs', async (req: Request, res: Response) => {
-  try {
-    const db = getDb();
-    const limit = parseInt((req.query.limit as string) || '50', 10);
-    const offset = parseInt((req.query.offset as string) || '0', 10);
-
-    const [rows]: any = await db.query(
-      `SELECT 
-        l.id,
-        l.target_phone,
-        l.message_content,
-        l.status,
-        l.error as error_message,
-        l.created_at,
-        s.name as session_name
-       FROM wa_message_logs l
-       LEFT JOIN wa_sessions s ON l.session_id = s.id
-       ORDER BY l.created_at DESC 
-       LIMIT ? OFFSET ?`,
-      [limit, offset]
-    );
-
-    const [totalRows]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
-    const total = totalRows[0]?.count || 0;
-
-    logger.info(`[DEBUG] Log Retrieval: Found ${rows.length} rows, Total in DB: ${total}`);
-
-    res.json({
-      success: true,
-      data: rows || [],
-      meta: {
-        total,
-        limit,
-        offset
-      }
-    });
-  } catch (err: any) {
-    logger.error(`Error loading logs: ${err.message}`);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ROUTE DIAGNOSTIK (Bisa dihapus nanti)
-router.get('/db-check', async (req: Request, res: Response) => {
-  try {
-    const db = getDb();
-    const [rows]: any = await db.query('SELECT * FROM wa_message_logs ORDER BY created_at DESC LIMIT 10');
-    const [total]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
-    res.json({ rows, total: total[0].count });
-  } catch (err: any) {
-    res.json({ error: err.message });
-  }
 });
 
 export default router;

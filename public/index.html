@@ -369,8 +369,48 @@
           <label>Nama Perangkat (Misal: Admin Pusat)</label>
           <input type="text" id="session-name" class="form-control" required placeholder="Masukkan nama..." />
         </div>
+        <div class="form-group">
+          <label>Limit Pesan Harian (Lampu Hijau: 200)</label>
+          <input type="number" id="session-limit" class="form-control" value="200" min="1" max="5000" />
+          <small style="color:var(--text-muted); font-size: 0.7rem;">Sangat disarankan di bawah 200 untuk nomor baru agar terhindar dari pemblokiran.</small>
+        </div>
         <button type="submit" class="btn btn-primary" style="width: 100%">Buat & Generate QR</button>
       </form>
+    </div>
+  </div>
+
+  <div id="modal-edit-session" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Edit Perangkat</h2>
+        <button class="close-btn" onclick="closeModal('modal-edit-session')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="saveSessionEdit(event)">
+        <input type="hidden" id="edit-session-id" />
+        <div class="form-group">
+          <label>Nama Perangkat</label>
+          <input type="text" id="edit-session-name" class="form-control" required placeholder="Masukkan nama..." />
+        </div>
+        <div class="form-group">
+          <label>Limit Pesan Harian</label>
+          <input type="number" id="edit-session-limit" class="form-control" required min="1" max="5000" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan Perubahan</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-confirm" class="modal-overlay">
+    <div class="modal" style="max-width: 400px; text-align: center; padding: 30px;">
+      <div id="confirm-icon" style="font-size: 3.5rem; margin-bottom: 20px; color: var(--warning);">
+        <i class="fa-solid fa-circle-question"></i>
+      </div>
+      <h2 id="confirm-title" style="margin-bottom: 10px;">Konfirmasi</h2>
+      <p id="confirm-message" class="text-muted" style="margin-bottom: 25px;">Apakah Anda yakin ingin melakukan tindakan ini?</p>
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button id="btn-confirm-cancel" class="btn btn-outline" style="flex: 1">Batal</button>
+        <button id="btn-confirm-ok" class="btn btn-primary" style="flex: 1">Ya, Lanjutkan</button>
+      </div>
     </div>
   </div>
 
@@ -511,7 +551,9 @@
       },
       sessions: {
         list: () => wa_api.fetch('/sessions'),
-        create: (name) => wa_api.fetch('/sessions', { method: 'POST', body: JSON.stringify({ name }) }),
+        create: (data) => wa_api.fetch('/sessions', { method: 'POST', body: JSON.stringify(data) }),
+        update: (id, data) => wa_api.fetch(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+        disconnect: (id) => wa_api.fetch(`/sessions/${id}/disconnect`, { method: 'POST' }),
         connect: (id) => wa_api.fetch(`/sessions/${id}/connect`, { method: 'POST' }),
         delete: (id) => wa_api.fetch(`/sessions/${id}`, { method: 'DELETE' }),
         restart: (id) => wa_api.fetch(`/sessions/${id}/restart`, { method: 'POST' }),

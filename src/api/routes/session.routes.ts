@@ -103,19 +103,19 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/sessions — Create new session
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name } = req.body;
+    const { name, dailyLimit } = req.body;
     if (!name) {
       res.status(400).json({ success: false, message: 'name is required' });
       return;
     }
 
     const sm = getSessionManager();
-    const session = await sm.createSession(name);
+    const session = await sm.createSession(name, dailyLimit ? parseInt(dailyLimit as any) : 200);
 
     res.json({
       success: true,
       data: session,
-      message: `Session "${name}" created. Scan QR code at /api/sessions/${session.id}/qr`,
+      message: `Session "${name}" created with limit ${dailyLimit || 200}.`,
     });
   } catch (err: any) {
     logger.error(`POST /sessions error: ${err.message}`);
@@ -291,6 +291,46 @@ router.get('/:id/status', async (req: Request, res: Response) => {
 /**
  * @swagger
  * /api/sessions/{id}:
+ *   patch:
+ *     summary: Update a session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               dailyLimit:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Session updated successfully
+ */
+// PATCH /api/sessions/:id — Update session
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { name, dailyLimit } = req.body;
+    const sm = getSessionManager();
+    
+    await sm.updateSession(id, { name, dailyLimit: dailyLimit ? parseInt(dailyLimit as any) : undefined });
+    res.json({ success: true, message: 'Session updated successfully' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/sessions/{id}:
  *   delete:
  *     summary: Delete a session
  *     tags: [Sessions]
@@ -388,6 +428,35 @@ router.post('/:id/restart', async (req: Request, res: Response) => {
     res.json({ success: true, data: session, message: 'Session restarting...' });
   } catch (err: any) {
     logger.error(`POST /sessions/:id/restart error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/sessions/{id}/disconnect:
+ *   post:
+ *     summary: Disconnect session (Shut down browser)
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session disconnected
+ */
+// POST /api/sessions/:id/disconnect — Disconnect session
+router.post('/:id/disconnect', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const sm = getSessionManager();
+    await sm.disconnectSession(id);
+    res.json({ success: true, message: 'Session disconnected' });
+  } catch (err: any) {
+    logger.error(`POST /sessions/:id/disconnect error: ${err.message}`);
     res.status(500).json({ success: false, message: err.message });
   }
 });
