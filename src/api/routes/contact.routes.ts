@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../../config/database';
 import { getContactSync } from '../../services/ContactSync';
-import { normalizePhone } from '../../utils/phone';
+import { normalizePhone, toWhatsAppJid } from '../../utils/phone';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger';
 
@@ -41,7 +41,13 @@ router.get('/', async (req: Request, res: Response) => {
     const db = getDb();
     const limit = parseInt((req.query.limit as string) || '500', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
-    // Strictly exclude @lid and @g.us to show only valid individual contacts
+    
+    // DEBUG: Check total counts
+    const [allCount]: any = await db.query("SELECT COUNT(*) as total FROM wa_contacts");
+    const [jidCount]: any = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@c.us'");
+    logger.info(`[DEBUG] Contacts Table: Total=${allCount[0].total}, JID_Format=${jidCount[0].total}`);
+
+    // Let's be more lenient: show everything that isn't a group
     const [rows] = await db.query(
       `SELECT 
         wc.id,
@@ -51,17 +57,18 @@ router.get('/', async (req: Request, res: Response) => {
         wc.source,
         wc.created_at
       FROM wa_contacts wc
-      WHERE wc.phone_number LIKE '%@c.us'
+      WHERE wc.phone_number NOT LIKE '%@g.us'
       ORDER BY wc.created_at DESC 
       LIMIT ? OFFSET ?`,
       [limit, offset]
     );
 
-    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@c.us'");
+    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number NOT LIKE '%@g.us'");
     const total = (countRows as any[])[0].total;
 
     res.json({ success: true, data: rows, meta: { total, limit, offset } });
   } catch (err: any) {
+    logger.error(`Error fetching contacts: ${err.message}`);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -101,16 +108,23 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const normalizedPhone = normalizePhone(phone);
+    const jid = toWhatsAppJid(phone);
     const db = getDb();
 
+    logger.info(`[DEBUG] Attempting to save manual contact: Phone=${phone}, JID=${jid}, Name=${name}`);
+
     // Upsert contact
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO wa_contacts (id, phone_number, name, tags, source) 
        VALUES (?, ?, ?, ?, 'manual')
-       ON DUPLICATE KEY UPDATE name = VALUES(name), tags = VALUES(tags)`,
-      [uuidv4(), normalizedPhone, name || null, tags ? JSON.stringify(tags) : null]
+       ON DUPLICATE KEY UPDATE 
+         name = VALUES(name), 
+         tags = VALUES(tags),
+         source = 'manual'`,
+      [uuidv4(), jid, name || null, tags ? JSON.stringify(tags) : null]
     );
+
+    logger.info(`[DEBUG] Save result: ${JSON.stringify(result)}`);
 
     res.json({ success: true, message: 'Contact saved successfully' });
   } catch (err: any) {
@@ -159,12 +173,12 @@ router.post('/import', async (req: Request, res: Response) => {
 
     for (const contact of contacts) {
       if (contact.phone) {
-        const normalizedPhone = normalizePhone(contact.phone);
+        const jid = toWhatsAppJid(contact.phone);
         await db.query(
           `INSERT INTO wa_contacts (id, phone_number, name, source) 
            VALUES (?, ?, ?, 'import')
            ON DUPLICATE KEY UPDATE name = VALUES(name)`,
-          [uuidv4(), normalizedPhone, contact.name || null]
+          [uuidv4(), jid, contact.name || null]
         );
         imported++;
       }

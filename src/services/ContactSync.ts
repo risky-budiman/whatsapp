@@ -1,6 +1,6 @@
 import { getDb, getLaravelDb } from '../config/database';
 import { logger } from '../utils/logger';
-import { normalizePhone } from '../utils/phone';
+import { normalizePhone, toWhatsAppJid } from '../utils/phone';
 import { v4 as uuidv4 } from 'uuid';
 
 export class ContactSync {
@@ -28,15 +28,14 @@ export class ContactSync {
       let updated = 0;
 
       for (const customer of customers) {
-        const normalizedPhone = normalizePhone(customer.phone);
+        const jid = toWhatsAppJid(customer.phone);
         
-        if (!normalizedPhone) continue;
+        if (!jid) continue;
 
-        // Check if exists in gateway DB (check numeric or full JID)
-        const jidFormat = `${normalizedPhone}@c.us`;
+        // Check if exists in gateway DB
         const [existing] = await gatewayDb.query(
-          'SELECT id, name, phone_number FROM wa_contacts WHERE phone_number = ? OR phone_number = ?',
-          [normalizedPhone, jidFormat]
+          'SELECT id, name, phone_number FROM wa_contacts WHERE phone_number = ?',
+          [jid]
         );
         const contact = (existing as any[])[0];
 
@@ -45,7 +44,7 @@ export class ContactSync {
           if (contact.name !== customer.name) {
             await gatewayDb.query(
               'UPDATE wa_contacts SET name = ?, laravel_customer_id = ?, source = ? WHERE phone_number = ?',
-              [customer.name, customer.id, 'laravel_sync', contact.phone_number]
+              [customer.name, customer.id, 'laravel_sync', jid]
             );
             updated++;
           }
@@ -53,7 +52,7 @@ export class ContactSync {
           // Insert new
           await gatewayDb.query(
             'INSERT INTO wa_contacts (id, phone_number, name, source, laravel_customer_id) VALUES (?, ?, ?, ?, ?)',
-            [uuidv4(), normalizedPhone, customer.name, 'laravel_sync', customer.id]
+            [uuidv4(), jid, customer.name, 'laravel_sync', customer.id]
           );
           added++;
         }
@@ -73,7 +72,7 @@ export class ContactSync {
    * Keywords: STOP, BERHENTI, UNSUBSCRIBE
    */
   async handleIncomingMessage(phone: string, text: string): Promise<void> {
-    const normalizedPhone = normalizePhone(phone);
+    const jid = toWhatsAppJid(phone);
     const upperText = text.trim().toUpperCase();
 
     const optOutKeywords = ['STOP', 'BERHENTI', 'UNSUBSCRIBE', 'BATAL'];
@@ -84,10 +83,10 @@ export class ContactSync {
       // Update contact as opted out
       await db.query(
         'UPDATE wa_contacts SET is_opted_out = 1, opted_out_at = NOW() WHERE phone_number = ?',
-        [normalizedPhone]
+        [jid]
       );
       
-      logger.warn(`🚫 Contact ${normalizedPhone} OPTED OUT via keyword`);
+      logger.warn(`🚫 Contact ${jid} OPTED OUT via keyword`);
     }
   }
 }
