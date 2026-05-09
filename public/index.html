@@ -541,13 +541,26 @@
     const API_KEY = 'dev-wa-gateway-key-2026';
     const wa_api = {
       async fetch(endpoint, options = {}) {
-        const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, ...(options.headers || {}) };
         try {
-          const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.message || 'API request failed');
+          const response = await fetch(`${API_BASE}${endpoint}`, {
+            ...options,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': API_KEY,
+              ...(options.headers || {})
+            }
+          });
+          
+          const data = await response.json().catch(() => ({ success: false, message: `Server error (${response.status})` }));
+          
+          if (!response.ok || (data.success === false)) {
+            throw new Error(data.message || `API Error (${response.status})`);
+          }
           return data;
-        } catch (err) { console.error(`API Error:`, err); throw err; }
+        } catch (err) {
+          console.error("Fetch Error Detail:", err);
+          throw err;
+        }
       },
       sessions: {
         list: () => wa_api.fetch('/sessions'),

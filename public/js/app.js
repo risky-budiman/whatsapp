@@ -307,6 +307,11 @@ async function renderDashboard() {
     }).join('');
   } catch (err) {
     console.error("Gagal memuat dashboard:", err);
+    ['dash-active-sessions', 'dash-total-contacts', 'dash-messages-today', 'dash-total-broadcast'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = 'Err';
+    });
+    showToast("Gagal memuat statistik: " + err.message, "error");
   }
 }
 
@@ -1208,9 +1213,16 @@ async function sendDirectMessage(e) {
   btn.disabled = true;
 
   try {
-    await wa_api.fetch(`/chats/${phone}`, {
+    // Bersihkan nomor dari spasi, strip, atau simbol lainnya
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    
+    if (!cleanPhone) {
+      throw new Error("Nomor tujuan tidak valid");
+    }
+
+    await wa_api.fetch(`/chats/${cleanPhone}`, {
       method: 'POST',
-      body: JSON.stringify({ message, sessionId })
+      body: JSON.stringify({ message, sessionId: sessionId || 'auto' })
     });
     
     closeModal('modal-direct-message');
