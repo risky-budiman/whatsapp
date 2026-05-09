@@ -43,7 +43,6 @@ app.use((req, res, next) => {
   logger.info(`🔍 [${req.method}] ${req.url}`);
   next();
 });
-app.use(express.static(path.join(__dirname, '../public')));
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -69,6 +68,9 @@ app.use('/api', (req, res) => {
   logger.warn(`🚫 [404] Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found on this server.` });
 });
+
+// Static Files (Moved here to prevent shadowing API routes)
+app.use(express.static(path.join(__dirname, '../public')));
 
 /**
  * @swagger
