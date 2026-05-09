@@ -18,6 +18,8 @@ import sessionRoutes from './api/routes/session.routes';
 import contactRoutes from './api/routes/contact.routes';
 import campaignRoutes from './api/routes/campaign.routes';
 import chatRoutes, { emitChatEvent } from './api/routes/chat.routes';
+import settingsRoutes from './api/routes/settings.routes';
+import dashboardRoutes from './api/routes/dashboard.routes';
 
 const app = express();
 
@@ -48,12 +50,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // API Routes
 app.use('/api/sessions', sessionRoutes);
-import settingsRoutes from './api/routes/settings.routes';
-
 app.use('/api/contacts', contactRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Global Error Handler for JSON Syntax Errors
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -61,6 +62,12 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     return res.status(400).json({ success: false, message: 'Invalid JSON format. Check your quotes and brackets.' });
   }
   next();
+});
+
+// Catch-all 404 handler for API
+app.use('/api', (req, res) => {
+  logger.warn(`🚫 [404] Route not found: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found on this server.` });
 });
 
 /**
