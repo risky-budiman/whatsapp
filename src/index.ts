@@ -63,9 +63,12 @@ app.use('/api', async (req, res, next) => {
   // 1. Skip for Public Auth Routes (already handled)
   if (req.path.startsWith('/auth/')) return next();
 
-  // 2. Try Web Session OR Header Token (Best for UI & Reliability)
-  const sid = req.cookies?.wa_sid || req.headers['x-auth-token'];
+  // 2. Try Web Session OR Header Token (Flexible)
+  const headerToken = req.headers['x-auth-token'] || req.headers['X-Auth-Token'];
+  const sid = (req.cookies?.wa_sid || (Array.isArray(headerToken) ? headerToken[0] : headerToken)) as string;
+  
   if (sid) {
+    logger.info(`🔑 Auth Attempt with SID: ${sid.substring(0, 8)}...`);
     try {
       const db = getDb();
       const [sessions]: any = await db.query(`
@@ -77,7 +80,12 @@ app.use('/api', async (req, res, next) => {
         (req as any).userId = sessions[0].user_id;
         return next();
       }
-    } catch (err) {}
+      logger.warn(`❌ Session SID not found in DB or expired`);
+    } catch (err: any) {
+      logger.error(`🔥 DB Auth Error: ${err.message}`);
+    }
+  } else {
+    logger.warn(`🚫 No SID or X-Auth-Token found in request to ${req.path}`);
   }
 
   // 3. Fallback to API Key (Integrations)

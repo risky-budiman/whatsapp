@@ -677,15 +677,15 @@
       async fetch(endpoint, options = {}) {
         try {
           const method = options.method || 'GET';
-          // Get token from localStorage
           const token = localStorage.getItem('wa_token');
+          console.log(`🚀 API Call: ${endpoint} | Token: ${token ? 'Present' : 'None'}`);
           
           const fetchOptions = {
             method,
             headers: {
               'Content-Type': 'application/json',
               'X-API-Key': CURRENT_API_KEY,
-              'X-Auth-Token': token, // LocalStorage Fallback
+              'X-Auth-Token': token, 
               ...(options.headers || {})
             }
           };
