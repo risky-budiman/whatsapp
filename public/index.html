@@ -689,11 +689,16 @@
               ...(options.headers || {})
             }
           };
+
+          // Append token to URL as fallback for header-stripping proxies
+          const separator = endpoint.includes('?') ? '&' : '?';
+          const url = `${API_BASE}${endpoint}${token ? separator + 'token=' + token : ''}`;
+
           // Only include body for non-GET requests
           if (method !== 'GET' && options.body) {
             fetchOptions.body = options.body;
           }
-        const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
+        const response = await fetch(url, fetchOptions);
 
         if (response.status === 401 && !endpoint.includes('/auth/login')) {
           console.warn("⚠️ Unauthorized! Waiting for token sync before redirect...");

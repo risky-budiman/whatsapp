@@ -63,12 +63,13 @@ app.use('/api', async (req, res, next) => {
   // 1. Skip for Public Auth Routes (already handled)
   if (req.path.startsWith('/auth/')) return next();
 
-  // 2. Try Web Session OR Header Token (Flexible)
+  // 2. Try Web Session OR Header Token OR Query Token (Total Fallback)
   const headerToken = req.headers['x-auth-token'] || req.headers['X-Auth-Token'];
-  const sid = (req.cookies?.wa_sid || (Array.isArray(headerToken) ? headerToken[0] : headerToken)) as string;
+  const queryToken = req.query.token;
+  const sid = (req.cookies?.wa_sid || queryToken || (Array.isArray(headerToken) ? headerToken[0] : headerToken)) as string;
   
   if (sid) {
-    logger.info(`🔑 Auth Attempt with SID: ${sid.substring(0, 8)}...`);
+    logger.info(`🔑 Auth Attempt with SID: ${sid.substring(0, 8)}... (Source: ${queryToken ? 'URL' : 'Header/Cookie'})`);
     try {
       const db = getDb();
       const [sessions]: any = await db.query(`
