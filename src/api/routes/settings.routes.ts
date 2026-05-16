@@ -9,7 +9,10 @@ router.get('/stats', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     
-    const [sessions]: any = await db.query("SELECT COUNT(*) as count FROM wa_sessions WHERE status = 'active'");
+    const sessionManager = (require('../../services/SessionManager').SessionManager).getInstance();
+    const activeSessionsCount = Array.from((sessionManager as any).sessions.values())
+      .filter((s: any) => s.info.status === 'active').length;
+
     const [contacts]: any = await db.query("SELECT COUNT(*) as count FROM wa_contacts");
     const [messages]: any = await db.query("SELECT COUNT(*) as count FROM wa_message_logs WHERE DATE(created_at) = CURDATE()");
     const [broadcasts]: any = await db.query("SELECT COUNT(*) as count FROM wa_campaigns WHERE status = 'completed'");
@@ -17,7 +20,7 @@ router.get('/stats', async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        activeSessions: sessions[0].count,
+        activeSessions: activeSessionsCount,
         totalContacts: contacts[0].count,
         messagesToday: messages[0].count,
         totalBroadcasts: broadcasts[0].count

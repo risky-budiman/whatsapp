@@ -50,6 +50,9 @@ function showToast(message, type = 'success', title = '') {
 // window.alert = (msg) => showToast(msg, 'info');
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 1. Check Auth First
+  checkAuth();
+
   // Initialize navigation immediately
   initNavigation();
   
@@ -61,6 +64,62 @@ document.addEventListener('DOMContentLoaded', () => {
     initChatStream();
   });
 });
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.status === 401) {
+      window.location.href = '/login';
+    } else {
+      const data = await res.json();
+      const isAdmin = data.user && data.user.role === 'admin';
+      IS_ADMIN = isAdmin; // Set global flag
+      
+      const navUsers = document.getElementById('nav-users');
+      const navProfile = document.getElementById('nav-profile');
+      const navApi = document.getElementById('nav-api');
+      const navDocs = document.getElementById('nav-docs');
+      const btnAddSession = document.getElementById('btn-add-session');
+      const btnHardReset = document.getElementById('btn-hard-reset');
+      const adminOnlyCards = document.querySelectorAll('.admin-only');
+      
+      if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
+      if (navProfile) navProfile.style.display = isAdmin ? 'none' : 'block';
+      if (navApi) navApi.style.display = isAdmin ? 'block' : 'none';
+      if (navDocs) navDocs.style.display = isAdmin ? 'block' : 'none';
+      if (btnAddSession) btnAddSession.style.display = isAdmin ? 'inline-flex' : 'none';
+      if (btnHardReset) btnHardReset.style.display = isAdmin ? 'inline-flex' : 'none';
+      
+      // Update User Identity Display
+      const profileInfo = document.getElementById('user-profile-info');
+      const displayName = document.getElementById('user-display-name');
+      const displayRole = document.getElementById('user-display-role');
+      const userInitial = document.getElementById('user-initial');
+      
+      if (profileInfo && data.user) {
+        profileInfo.style.display = 'block';
+        displayName.innerText = data.user.username;
+        displayRole.innerText = data.user.role === 'admin' ? 'Administrator' : 'Staff Member';
+        userInitial.innerText = data.user.username.charAt(0).toUpperCase();
+      }
+
+      adminOnlyCards.forEach(card => {
+        card.style.display = isAdmin ? 'flex' : 'none';
+      });
+    }
+  } catch (e) {
+    console.error("Auth check failed", e);
+  }
+}
+
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+  } catch (e) {
+    window.location.href = '/login';
+  }
+}
 
 async function syncSettings() {
   try {
@@ -172,7 +231,10 @@ function loadView(viewId) {
   if (viewId === 'sessions') renderSessions();
   if (viewId === 'contacts') renderContacts();
   if (viewId === 'groups') renderGroups();
+  if (viewId === 'campaigns') renderCampaigns();
   if (viewId === 'logs') renderMessageLogs();
+  if (viewId === 'users') renderUsers();
+  if (viewId === 'profile') renderMyProfile();
   if (viewId === 'api-settings') {
     fetchApiKey();
   }
@@ -458,13 +520,17 @@ async function renderSessions() {
     
     if (sessions.length === 0) {
       grid.innerHTML = `
-        <div style="grid-column: 1/-1; text-align: center; padding: 60px; background: rgba(255,255,255,0.02); border-radius: 20px; border: 2px dashed var(--glass-border);">
-          <i class="fa-solid fa-mobile-screen fa-3x" style="color: var(--text-muted); margin-bottom: 20px; opacity: 0.5;"></i>
-          <h3>Belum ada Perangkat</h3>
-          <p class="text-muted" style="margin-bottom: 20px;">Hubungkan nomor WhatsApp Anda untuk mulai mengirim pesan.</p>
-          <button class="btn btn-primary" onclick="openModal('modal-add-session')">
-            <i class="fa-solid fa-plus"></i> Tambah Perangkat Pertama
-          </button>
+        <div style="grid-column: 1/-1;">
+          <div class="empty-state-card">
+            <div class="empty-state-icon">
+              <i class="fa-solid fa-mobile-screen"></i>
+            </div>
+            <h3>Belum Ada Perangkat</h3>
+            <p>Hubungkan nomor WhatsApp Anda melalui scan QR Code untuk mulai menggunakan fitur gateway.</p>
+            <button class="btn btn-primary" onclick="openModal('modal-add-session')">
+              <i class="fa-solid fa-plus"></i> Tambah Perangkat Pertama
+            </button>
+          </div>
         </div>
       `;
       return;
@@ -480,10 +546,18 @@ async function renderSessions() {
           <div class="status-indicator"></div>
           <div class="session-card-header">
             <div class="session-info">
-              <h3>${s.name}</h3>
-              <p>${s.phone_number || (isWaiting ? 'Menunggu Scan...' : 'Terputus')}</p>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3>${s.name}</h3>
+                ${IS_ADMIN ? `
+                <label class="switch-small" title="${s.is_enabled ? 'Matikan Sesi' : 'Aktifkan Sesi'}">
+                  <input type="checkbox" ${s.is_enabled ? 'checked' : ''} onchange="toggleSession('${s.id}', this.checked)">
+                  <span class="slider-small"></span>
+                </label>
+                ` : ''}
+              </div>
+              <p>${s.phone_number || (isWaiting ? 'Menunggu Scan...' : (s.is_enabled ? 'Terputus' : 'Dinonaktifkan'))}</p>
             </div>
-            <span class="badge ${s.status}">${statusText}</span>
+            <span class="badge ${s.is_enabled ? s.status : 'disconnected'}">${s.is_enabled ? statusText : 'OFF'}</span>
           </div>
 
           <div class="session-stats">
@@ -499,28 +573,43 @@ async function renderSessions() {
 
           <div class="session-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
             ${isActive ? `
-              <button class="btn btn-warning" style="flex: 2" onclick="disconnectSession('${s.id}')" title="Putuskan Koneksi">
-                <i class="fa-solid fa-power-off"></i> Putuskan
-              </button>
-              <button class="btn btn-outline" style="flex: 0" onclick="clearSessionData('${s.id}')" title="Bersihkan Cache Sesi">
-                <i class="fa-solid fa-broom"></i>
-              </button>
-            ` : `
-              <button class="btn btn-primary" style="flex: 2" onclick="openQrModal('${s.id}')">
-                <i class="fa-solid fa-qrcode"></i> ${isWaiting ? 'Lihat QR' : 'Hubungkan'}
-              </button>
-              ${isWaiting ? `
-                <button class="btn btn-outline-warning" style="flex: 0" onclick="disconnectSession('${s.id}')" title="Batalkan Koneksi">
-                  <i class="fa-solid fa-xmark"></i>
+              ${IS_ADMIN ? `
+                <button class="btn btn-warning" style="flex: 2" onclick="disconnectSession('${s.id}')" title="Putuskan Koneksi">
+                  <i class="fa-solid fa-power-off"></i> Putuskan
                 </button>
-              ` : ''}
+                <button class="btn btn-outline" style="flex: 0" onclick="clearSessionData('${s.id}')" title="Bersihkan Cache Sesi">
+                  <i class="fa-solid fa-broom"></i>
+                </button>
+              ` : `
+                <div style="flex: 1; text-align: center; color: var(--success); font-size: 0.8rem; padding: 10px; background: rgba(16, 185, 129, 0.05); border-radius: 8px;">
+                  <i class="fa-solid fa-check-circle"></i> Perangkat Terhubung
+                </div>
+              `}
+            ` : `
+              ${IS_ADMIN ? `
+                <button class="btn btn-primary" style="flex: 2" onclick="openQrModal('${s.id}')">
+                  <i class="fa-solid fa-qrcode"></i> ${isWaiting ? 'Lihat QR' : 'Hubungkan'}
+                </button>
+                ${isWaiting ? `
+                  <button class="btn btn-outline-warning" style="flex: 0" onclick="disconnectSession('${s.id}')" title="Batalkan Koneksi">
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                ` : ''}
+              ` : `
+                <div style="flex: 1; text-align: center; color: var(--danger); font-size: 0.8rem; padding: 10px; background: rgba(239, 68, 68, 0.05); border-radius: 8px;">
+                  <i class="fa-solid fa-triangle-exclamation"></i> Menunggu Admin
+                </div>
+              `}
             `}
-            <button class="btn btn-outline-secondary" style="flex: 0; padding: 0 12px;" onclick="openEditSessionModal('${s.id}')" title="Edit">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-            <button class="btn btn-danger" style="flex: 0; padding: 0 12px;" onclick="deleteSession('${s.id}')" title="Hapus">
-              <i class="fa-solid fa-trash"></i>
-            </button>
+            
+            ${IS_ADMIN ? `
+              <button class="btn btn-outline-secondary" style="flex: 0; padding: 0 12px;" onclick="openEditSessionModal('${s.id}')" title="Edit">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <button class="btn btn-danger" style="flex: 0; padding: 0 12px;" onclick="deleteSession('${s.id}')" title="Hapus">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            ` : ''}
           </div>
         </div>
       `;
@@ -950,48 +1039,95 @@ async function syncWhatsApp() {
 
 // ─── CAMPAIGNS MANAGEMENT ───
 async function renderCampaigns() {
-  const tbody = document.getElementById('campaigns-tbody');
-  tbody.innerHTML = `<tr><td colspan="6" class="text-center">Loading...</td></tr>`;
+  const grid = document.getElementById('campaigns-grid');
+  grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px;">
+    <i class="fa-solid fa-circle-notch fa-spin fa-2x" style="color: var(--primary)"></i>
+  </div>`;
   
   try {
     const res = await wa_api.campaigns.list();
     const campaigns = res.data;
     
     if (campaigns.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada Campaign</td></tr>`;
+      grid.innerHTML = `
+        <div style="grid-column: 1/-1;">
+          <div class="empty-state-card">
+            <div class="empty-state-icon">
+              <i class="fa-solid fa-bullhorn"></i>
+            </div>
+            <h3>Siap Kirim Pesan Massal?</h3>
+            <p>Jangkau ribuan kontak sekaligus dengan fitur broadcast yang aman dan terukur. Buat kampanye pertama Anda sekarang.</p>
+            <button class="btn btn-primary" onclick="openCampaignModal()">
+              <i class="fa-solid fa-plus"></i> Buat Campaign Baru
+            </button>
+          </div>
+        </div>
+      `;
       return;
     }
 
-    tbody.innerHTML = campaigns.map((c, index) => {
+    grid.innerHTML = campaigns.map((c) => {
       const progress = c.total_recipients > 0 ? Math.round((c.sent_count / c.total_recipients) * 100) : 0;
       return `
-      <tr>
-        <td>${index + 1}</td>
-        <td><strong>${c.name}</strong></td>
-        <td><span class="badge ${c.status}">${c.status}</span></td>
-        <td>${c.total_recipients}</td>
-        <td><span class="badge active">${c.sent_count}</span></td>
-        <td><span class="badge danger">${c.failed_count || 0}</span></td>
-        <td>
-          <div style="width: 100%; background: var(--bg-dark); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 5px;">
-            <div style="width: ${progress}%; background: var(--primary); height: 100%;"></div>
+        <div class="campaign-card">
+          <div class="campaign-card-header">
+            <div class="campaign-card-title">
+              <h3>${c.name}</h3>
+              <span class="badge ${c.status}">${c.status}</span>
+            </div>
           </div>
-          <small>${progress}%</small>
-        </td>
-        <td>
-          <div style="display: flex; gap: 5px;">
+
+          <div class="campaign-progress-container">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.85rem;">
+              <span class="text-muted">Progress Pengiriman</span>
+              <span style="font-weight: 600; color: var(--primary);">${progress}%</span>
+            </div>
+            <div class="campaign-progress-bar">
+              <div class="campaign-progress-fill" style="width: ${progress}%"></div>
+            </div>
+          </div>
+
+          <div class="campaign-stats-grid">
+            <div class="campaign-stat-item">
+              <div class="campaign-stat-label">Target</div>
+              <div class="campaign-stat-value">${c.total_recipients}</div>
+            </div>
+            <div class="campaign-stat-item">
+              <div class="campaign-stat-label">Sukses</div>
+              <div class="campaign-stat-value" style="color: var(--primary)">${c.sent_count}</div>
+            </div>
+            <div class="campaign-stat-item">
+              <div class="campaign-stat-label">Gagal</div>
+              <div class="campaign-stat-value" style="color: var(--danger)">${c.failed_count || 0}</div>
+            </div>
+          </div>
+
+          <div class="campaign-actions">
             ${['pending', 'draft', 'paused'].includes(c.status) 
-              ? `<button class="btn btn-sm btn-primary" onclick="startCampaign('${c.id}')" title="Mulai"><i class="fa-solid fa-play"></i></button>` 
-              : ''}
+              ? `<button class="btn btn-primary" style="flex: 1" onclick="startCampaign('${c.id}')">
+                  <i class="fa-solid fa-play"></i> Mulai Broadcast
+                </button>` 
+              : `
+                <div style="flex: 1; text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                  <i class="fa-solid fa-info-circle"></i> Campaign ${c.status}
+                </div>
+              `}
+            
             ${(c.failed_count > 0) 
-              ? `<button class="btn btn-sm btn-warning" onclick="resendCampaignFailed('${c.id}')" title="Resend Failed"><i class="fa-solid fa-rotate-right"></i></button>` 
+              ? `<button class="btn btn-outline-warning" onclick="resendCampaignFailed('${c.id}')" title="Kirim Ulang Gagal">
+                  <i class="fa-solid fa-rotate-right"></i>
+                </button>` 
               : ''}
           </div>
-        </td>
-      </tr>
+        </div>
     `}).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    grid.innerHTML = `<div style="grid-column: 1/-1;">
+      <div class="empty-state text-danger">
+        <i class="fa-solid fa-triangle-exclamation" style="background: none; -webkit-text-fill-color: var(--danger); opacity: 0.5;"></i>
+        <p>Gagal memuat campaign: ${err.message}</p>
+      </div>
+    </div>`;
   }
 }
 
@@ -1389,3 +1525,160 @@ async function sendDirectMessage(e) {
     btn.disabled = false;
   }
 }
+async function renderUsers() {
+  const tbody = document.getElementById('users-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center">Memuat user...</td></tr>';
+
+  try {
+    const res = await wa_api.fetch('/users');
+    const users = res.data;
+
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center">Belum ada user tambahan</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map((user, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td><strong>${user.username}</strong></td>
+        <td><span class="status-badge ${user.role === 'admin' ? 'sent' : 'received'}">${user.role.toUpperCase()}</span></td>
+        <td>${new Date(user.created_at).toLocaleString()}</td>
+        <td>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-sm btn-primary" onclick="openEditUserModal('${user.id}', '${user.username}', '${user.role}')">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.id}')">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Gagal memuat: ${err.message}</td></tr>`;
+  }
+}
+
+async function createUser(e) {
+  e.preventDefault();
+  const username = document.getElementById('user-username').value;
+  const password = document.getElementById('user-password').value;
+  const role = document.getElementById('user-role').value;
+
+  try {
+    await wa_api.fetch('/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role })
+    });
+
+    showToast("User berhasil dibuat!", "success");
+    closeModal('modal-add-user');
+    renderUsers();
+    
+    // Clear inputs
+    document.getElementById('user-username').value = '';
+    document.getElementById('user-password').value = '';
+  } catch (err) {
+    showToast("Gagal membuat user: " + err.message, "error");
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm("Apakah Anda yakin ingin menghapus user ini? Sesi login mereka juga akan terputus.")) return;
+
+  try {
+    await wa_api.fetch(`/users/${id}`, { method: 'DELETE' });
+    showToast("User berhasil dihapus!", "success");
+    renderUsers();
+  } catch (err) {
+    showToast("Gagal menghapus user: " + err.message, "error");
+  }
+}
+
+function openEditUserModal(id, username, role) {
+  document.getElementById('edit-user-id').value = id;
+  document.getElementById('edit-user-username').value = username;
+  document.getElementById('edit-user-role').value = role;
+  document.getElementById('edit-user-password').value = ''; // Reset password field
+  openModal('modal-edit-user');
+}
+
+async function updateUser(e) {
+  e.preventDefault();
+  const id = document.getElementById('edit-user-id').value;
+  const username = document.getElementById('edit-user-username').value;
+  const password = document.getElementById('edit-user-password').value;
+  const role = document.getElementById('edit-user-role').value;
+
+  const data = { username, role };
+  if (password) data.password = password;
+
+  try {
+    await wa_api.fetch(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+
+    showToast("User berhasil diupdate!", "success");
+    closeModal('modal-edit-user');
+    renderUsers();
+  } catch (err) {
+    showToast("Gagal mengupdate user: " + err.message, "error");
+  }
+}
+
+async function renderMyProfile() {
+  try {
+    const res = await fetch('/api/auth/me').then(r => r.json());
+    if (res.success) {
+      document.getElementById('my-username').value = res.user.username;
+    }
+  } catch (e) {
+    console.error("Gagal memuat profil:", e);
+  }
+}
+
+async function updateMyProfile(e) {
+  e.preventDefault();
+  const username = document.getElementById('my-username').value;
+  const password = document.getElementById('my-password').value;
+
+  const data = { username };
+  if (password) data.password = password;
+
+  try {
+    const res = await fetch('/api/auth/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+
+    if (res.success) {
+      showToast("Profil berhasil diperbarui!", "success");
+      document.getElementById('my-password').value = '';
+    } else {
+      showToast("Gagal update profil: " + res.message, "error");
+    }
+  } catch (err) {
+    showToast("Gagal update profil: " + err.message, "error");
+  }
+}
+
+async function toggleSession(id, enabled) {
+  try {
+    await wa_api.fetch(`/sessions/${id}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled })
+    });
+    showToast(`Sesi ${enabled ? 'diaktifkan' : 'dimatikan'}`, "success");
+    renderSessions();
+  } catch (err) {
+    showToast("Gagal mengubah status sesi: " + err.message, "error");
+    renderSessions();
+  }
+}
+
+

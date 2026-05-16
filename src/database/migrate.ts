@@ -149,6 +149,27 @@ const TABLES = [
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   },
+  {
+    name: 'wa_users',
+    sql: `CREATE TABLE IF NOT EXISTS wa_users (
+      id VARCHAR(36) PRIMARY KEY,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role ENUM('admin','staff') DEFAULT 'admin',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  },
+  {
+    name: 'wa_web_sessions',
+    sql: `CREATE TABLE IF NOT EXISTS wa_web_sessions (
+      sid VARCHAR(255) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES wa_users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  },
 ];
 
 async function migrate() {
@@ -225,6 +246,15 @@ async function migrate() {
       logger.info('  ✅ Column "phone_number" size updated in wa_sessions');
     } catch (e: any) {
       logger.error(`  ❌ Failed to update wa_sessions phone size: ${e.message}`);
+    }
+
+    // 4. Add is_enabled column to wa_sessions
+    try {
+      await db.query("ALTER TABLE wa_sessions ADD COLUMN is_enabled TINYINT(1) DEFAULT 1 AFTER priority");
+      logger.info('  ✅ Column "is_enabled" added to wa_sessions');
+    } catch (e: any) {
+      if (e.code === 'ER_DUP_FIELDNAME') logger.info('  ℹ️  Column "is_enabled" already exists in wa_sessions');
+      else logger.error(`  ❌ Failed to add is_enabled column: ${e.message}`);
     }
 
   console.log('\n🎉 Migration complete!');

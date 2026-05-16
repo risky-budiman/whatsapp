@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - WhatsApp Gateway</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      height: 100vh;
+      margin: 0;
+    }
+    .login-container {
+      width: 100%;
+      max-width: 400px;
+      padding: 20px;
+    }
+    .login-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      text-align: center;
+      animation: fadeIn 0.5s ease-out;
+    }
+    .login-logo {
+      font-size: 3rem;
+      color: var(--primary);
+      margin-bottom: 20px;
+    }
+    .login-card h1 {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    .login-card p {
+      color: var(--text-muted);
+      margin-bottom: 30px;
+      font-size: 0.9rem;
+    }
+    .form-group {
+      text-align: left;
+      margin-bottom: 20px;
+    }
+    .btn-login {
+      width: 100%;
+      margin-top: 10px;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .error-msg {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      display: none;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <i class="fa-brands fa-whatsapp"></i>
+      </div>
+      <h1>WhatsApp Gateway</h1>
+      <p>Silakan masuk ke dashboard manajemen</p>
+
+      <div id="error-box" class="error-msg"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="username" class="form-control" placeholder="admin" required>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="password" class="form-control" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-login">Masuk Sekarang</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorBox = document.getElementById('error-box');
+      const btn = e.target.querySelector('button');
+
+      errorBox.style.display = 'none';
+      btn.disabled = true;
+      btn.innerText = 'Memverifikasi...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          window.location.href = '/';
+        } else {
+          errorBox.innerText = data.message || 'Login gagal';
+          errorBox.style.display = 'block';
+        }
+      } catch (err) {
+        errorBox.innerText = 'Kesalahan jaringan atau server';
+        errorBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Masuk Sekarang';
+      }
+    });
+  </script>
+</body>
+</html>

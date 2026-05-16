@@ -21,6 +21,12 @@ import campaignRoutes from './api/routes/campaign.routes';
 import chatRoutes, { emitChatEvent } from './api/routes/chat.routes';
 import settingsRoutes from './api/routes/settings.routes';
 import dashboardRoutes from './api/routes/dashboard.routes';
+import authRoutes from './api/routes/auth.routes';
+import userRoutes from './api/routes/user.routes';
+import cookieParser from 'cookie-parser';
+import { sessionAuth } from './api/middleware/sessionAuth';
+import { apiKeyAuth } from './api/middleware/apiKey';
+import { hashPassword } from './utils/crypto';
 
 const app = express();
 
@@ -40,6 +46,7 @@ const PORT = env.APP_PORT || 3100;
 
 // Middleware
 app.use(express.json());
+app.use(cookieParser());
 app.use((req, res, next) => {
   logger.info(`🔍 [${req.method}] ${req.url}`);
   next();
@@ -48,11 +55,46 @@ app.use((req, res, next) => {
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// API Authentication Middleware
-import { apiKeyAuth } from './api/middleware/apiKey';
+// Public Auth Routes
+app.use('/api/auth', authRoutes);
 
-// API Routes (Protected by API Key)
-app.use('/api', apiKeyAuth);
+// Hybrid Authentication (Session OR API Key)
+app.use('/api', async (req, res, next) => {
+  // 1. Skip for Public Auth Routes (already handled)
+  if (req.path.startsWith('/auth/')) return next();
+
+  // 2. Try Web Session First (Best for UI)
+  const sid = req.cookies?.wa_sid;
+  if (sid) {
+    try {
+      const db = getDb();
+      const [sessions]: any = await db.query(`
+        SELECT user_id FROM wa_web_sessions 
+        WHERE sid = ? AND expires_at > NOW()
+      `, [sid]);
+
+      if (sessions.length > 0) {
+        (req as any).userId = sessions[0].user_id;
+        return next();
+      }
+    } catch (err) {}
+  }
+
+  // 3. Fallback to API Key (Integrations)
+  const apiKey = req.headers['x-api-key'] || req.query.api_key;
+  if (apiKey) {
+    if (apiKey === settingsService.getApiKey()) {
+      (req as any).userId = 'api-key-system';
+      (req as any).isApiKeyAuth = true;
+      return next();
+    } else {
+      return res.status(403).json({ success: false, message: 'Invalid API Key' });
+    }
+  }
+
+  // 4. Fail if neither
+  res.status(401).json({ success: false, message: 'Authentication required' });
+});
 
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/contacts', contactRoutes);
@@ -60,6 +102,7 @@ app.use('/api/campaigns', campaignRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/users', userRoutes);
 
 // Global Error Handler for JSON Syntax Errors
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -75,7 +118,16 @@ app.use('/api', (req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found on this server.` });
 });
 
-// Static Files (Moved here to prevent shadowing API routes)
+// Login Gate for Static Files
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/login.html'));
+});
+
+app.get('/', (req, res, next) => {
+  if (!req.cookies.wa_sid) return res.redirect('/login');
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 /**
@@ -144,16 +196,35 @@ async function start() {
           await db.query("ALTER TABLE wa_contacts ADD UNIQUE INDEX idx_session_phone (session_id, phone_number)");
         }
 
-        // Ensure wa_settings table exists
-        await db.query(`CREATE TABLE IF NOT EXISTS wa_settings (
-          \`key\` VARCHAR(100) PRIMARY KEY,
-          value TEXT,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-        
+        // Ensure wa_users and sessions table exists
+        await db.query(`CREATE TABLE IF NOT EXISTS wa_users (
+          id VARCHAR(36) PRIMARY KEY,
+          username VARCHAR(100) UNIQUE NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          role ENUM('admin','staff') DEFAULT 'admin',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        await db.query(`CREATE TABLE IF NOT EXISTS wa_web_sessions (
+          sid VARCHAR(255) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Create default admin if not exists
+        const [users]: any = await db.query('SELECT id FROM wa_users LIMIT 1');
+        if (users.length === 0) {
+          logger.info('👤 Creating default admin user (admin / admin123)...');
+          const adminPassword = hashPassword('admin123');
+          await db.query('INSERT INTO wa_users (id, username, password, role) VALUES (?, ?, ?, ?)', [
+            uuidv4(), 'admin', adminPassword, 'admin'
+          ]);
+        }
+
         // Init settings
         await settingsService.init();
-        logger.info('✅ Database schema verified.');
+        logger.info('✅ Database schema and users verified.');
 
         logger.info('🧹 Background cleanup: Ensuring no duplicate messages...');
         
@@ -351,6 +422,10 @@ async function start() {
         });
       });
 
+      // Cleanup ghost active sessions before init
+      const db = getDb();
+      await db.query("UPDATE wa_sessions SET status = 'disconnected' WHERE status = 'active'");
+      
       // NOW initialize sessions
       await sm.init();
     } catch (err: any) {

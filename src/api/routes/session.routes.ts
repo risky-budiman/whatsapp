@@ -61,6 +61,7 @@ router.get('/', async (_req: Request, res: Response) => {
         name: dbRow.name,
         phone_number: live?.phoneNumber || dbRow.phone_number,
         status: live?.status || dbRow.status,
+        is_enabled: dbRow.is_enabled === 1,
         daily_sent_count: live?.dailySentCount ?? dbRow.daily_sent_count,
         daily_limit: dbRow.daily_limit,
         last_sent_at: dbRow.last_sent_at,
@@ -457,6 +458,21 @@ router.post('/:id/disconnect', async (req: Request, res: Response) => {
     res.json({ success: true, message: 'Session disconnected' });
   } catch (err: any) {
     logger.error(`POST /sessions/:id/disconnect error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/sessions/:id/toggle — Enable/Disable session
+router.post('/:id/toggle', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { enabled } = req.body;
+    const sm = getSessionManager();
+    
+    await sm.updateSessionEnabledStatus(id, enabled);
+    res.json({ success: true, message: `Session ${enabled ? 'enabled' : 'disabled'}` });
+  } catch (err: any) {
+    logger.error(`POST /sessions/:id/toggle error: ${err.message}`);
     res.status(500).json({ success: false, message: err.message });
   }
 });

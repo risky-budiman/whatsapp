@@ -13,28 +13,98 @@
 
   <!-- SIDEBAR -->
   <aside class="sidebar">
-    <div class="brand">
-      <i class="fa-brands fa-whatsapp"></i>
-      <span>WA Gateway</span>
+    <div class="sidebar-header">
+      <div class="logo">
+        <i class="fa-brands fa-whatsapp"></i>
+        <span>WA Gateway</span>
+      </div>
+      <!-- User Identity Display -->
+      <div id="user-profile-info" style="padding: 15px; margin-top: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; display: none;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 35px; height: 35px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white;" id="user-initial">?</div>
+          <div style="flex: 1; overflow: hidden;">
+            <div id="user-display-name" style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">User</div>
+            <div id="user-display-role" style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Role</div>
+          </div>
+        </div>
+      </div>
     </div>
     <ul class="nav-menu">
-      <li><a href="#" class="nav-link active" data-view="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</a></li>
-      <li><a href="#" class="nav-link" data-view="sessions"><i class="fa-solid fa-mobile-screen"></i> Sesi &
-          Perangkat</a></li>
-      <li><a href="#" class="nav-link" data-view="contacts"><i class="fa-solid fa-user"></i> Kontak Pribadi</a></li>
-      <li><a href="#" class="nav-link" data-view="groups"><i class="fa-solid fa-users-rectangle"></i> Daftar Grup</a>
+      <li><a href="#" class="nav-link active" data-view="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
       </li>
+      <li><a href="#" class="nav-link" data-view="sessions"><i class="fa-solid fa-qrcode"></i> WhatsApp Sessions</a>
+      </li>
+      <li><a href="#" class="nav-link" data-view="contacts"><i class="fa-solid fa-address-book"></i> Kontak & Grup</a></li>
       <li><a href="#" class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</a>
       </li>
       <li><a href="#" class="nav-link" data-view="logs"><i class="fa-solid fa-list-check"></i> Riwayat Pesan</a></li>
-      <li><a href="#" class="nav-link" data-view="api-settings"><i class="fa-solid fa-key"></i> Integrasi API</a></li>
-      <li><a href="/api-docs" target="_blank" class="nav-link-static"><i class="fa-solid fa-book"></i> API
+      <li><a href="#" class="nav-link" data-view="users" id="nav-users" style="display: none;"><i class="fa-solid fa-users-gear"></i> Manajemen User</a></li>
+      <li><a href="#" class="nav-link" data-view="profile" id="nav-profile"><i class="fa-solid fa-user-pen"></i> Pengaturan Akun</a></li>
+      <li><a href="#" class="nav-link" data-view="api-settings" id="nav-api"><i class="fa-solid fa-key"></i> Integrasi API</a></li>
+      <li><a href="/api-docs" target="_blank" class="nav-link-static" id="nav-docs"><i class="fa-solid fa-book"></i> API
           Documentation</a></li>
+      <li style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--glass-border);">
+        <a href="#" class="nav-link" onclick="logout()" style="color: var(--danger)">
+          <i class="fa-solid fa-right-from-bracket"></i> Keluar
+        </a>
+      </li>
     </ul>
   </aside>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
+    
+    <!-- VIEW: PROFILE -->
+    <section id="view-profile" class="view-section">
+      <div class="header">
+        <h1>Pengaturan Akun Saya</h1>
+      </div>
+      <div class="card" style="max-width: 500px; margin: 0 auto; padding: 40px; background: var(--glass-bg);">
+        <p style="color: var(--text-muted); margin-bottom: 25px; font-size: 0.9rem;">
+          Gunakan formulir ini untuk mengubah data login Anda. Password hanya akan berubah jika Anda mengisi kolom password baru.
+        </p>
+        <form onsubmit="updateMyProfile(event)">
+          <div class="form-group">
+            <label>Username Baru</label>
+            <input type="text" id="my-username" class="form-control" placeholder="admin" required />
+          </div>
+          <div class="form-group">
+            <label>Password Baru (Kosongkan jika tidak ganti)</label>
+            <input type="password" id="my-password" class="form-control" placeholder="••••••••" />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 20px;">
+            <i class="fa-solid fa-save"></i> Simpan Perubahan Profil
+          </button>
+        </form>
+      </div>
+    </section>
+    
+    <!-- VIEW: USERS -->
+    <section id="view-users" class="view-section">
+      <div class="header">
+        <h1>Manajemen Akses User</h1>
+        <button class="btn btn-primary" onclick="openModal('modal-add-user')">
+          <i class="fa-solid fa-user-plus"></i> Tambah User
+        </button>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;">No</th>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Tanggal Dibuat</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- VIEW: DASHBOARD -->
     <section id="view-dashboard" class="view-section active">
@@ -80,7 +150,8 @@
             <div class="stat-value" id="dash-total-broadcast">...</div>
           </div>
         </div>
-        <div class="stat-card">
+        <!-- Admin Only Health Cards -->
+        <div class="stat-card admin-only" style="display: none;">
           <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: var(--success);">
             <i class="fa-solid fa-server"></i>
           </div>
@@ -92,7 +163,7 @@
             <div class="stat-value" id="dash-server-uptime" style="font-size: 1.1rem; margin-top: 5px;">...</div>
           </div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card admin-only" style="display: none;">
           <div class="stat-icon" style="background: rgba(239, 68, 68, 0.1); color: var(--danger);">
             <i class="fa-solid fa-memory"></i>
           </div>
@@ -101,7 +172,7 @@
             <div class="stat-value" id="dash-memory-usage" style="font-size: 1.1rem;">...</div>
           </div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card admin-only" style="display: none;">
           <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: var(--info);">
             <i class="fa-solid fa-microchip"></i>
           </div>
@@ -145,13 +216,13 @@
       <div class="header">
         <h1>Sesi & Perangkat</h1>
         <div style="display: flex; gap: 10px;">
-          <button class="btn btn-primary" onclick="openModal('modal-add-session')">
+          <button class="btn btn-primary" id="btn-add-session" onclick="openModal('modal-add-session')" style="display: none;">
             <i class="fa-solid fa-plus"></i> Tambah Nomor
           </button>
           <button class="btn btn-outline" onclick="openDirectMessageModal()">
             <i class="fa-solid fa-paper-plane"></i> Kirim Pesan Cepat
           </button>
-          <button class="btn btn-nuclear" onclick="hardResetAllData()">
+          <button class="btn btn-nuclear" id="btn-hard-reset" onclick="hardResetAllData()" style="display: none;">
             <i class="fa-solid fa-radiation"></i> Reset Database
           </button>
         </div>
@@ -259,24 +330,8 @@
           <i class="fa-solid fa-paper-plane"></i> Buat Campaign
         </button>
       </div>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 40px;">No</th>
-              <th>Nama Campaign</th>
-              <th>Status</th>
-              <th>Target</th>
-              <th>Berhasil</th>
-              <th>Gagal</th>
-              <th>Progress</th>
-              <th>Aksi</th>
-            </tr>
-          </thead>
-          <tbody id="campaigns-tbody">
-            <!-- Rendered via JS -->
-          </tbody>
-        </table>
+      <div id="campaigns-grid" class="sessions-grid">
+        <!-- Rendered via JS as CARDS -->
       </div>
     </section>
 
@@ -625,9 +680,14 @@
           if (method !== 'GET' && options.body) {
             fetchOptions.body = options.body;
           }
-          const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
-          
-          const data = await response.json().catch(() => ({ success: false, message: `Server error (${response.status})` }));
+        const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
+
+        if (response.status === 401 && !endpoint.includes('/auth/login')) {
+          window.location.href = '/login';
+          return;
+        }
+        
+        const data = await response.json().catch(() => ({ success: false, message: `Server error (${response.status})` }));
           
           if (!response.ok || (data.success === false)) {
             throw new Error(data.message || `API Error (${response.status})`);
@@ -742,6 +802,59 @@
   <div id="toast-container" class="toast-container"></div>
 
   <script src="/js/app.js?v=1.9"></script>
+  <div id="modal-add-user" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Tambah User Baru</h2>
+        <button class="close-btn" onclick="closeModal('modal-add-user')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="createUser(event)">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="user-username" class="form-control" required placeholder="Contoh: admin_marketing" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="user-password" class="form-control" required placeholder="••••••••" />
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="user-role" class="form-control" required>
+            <option value="admin">Administrator (Full Access)</option>
+            <option value="staff" selected>Staff (Dashboard Only)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Buat User</button>
+      </form>
+    </div>
+  </div>
+  <div id="modal-edit-user" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Edit User</h2>
+        <button class="close-btn" onclick="closeModal('modal-edit-user')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="updateUser(event)">
+        <input type="hidden" id="edit-user-id" />
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="edit-user-username" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label>Password (Kosongkan jika tidak diganti)</label>
+          <input type="password" id="edit-user-password" class="form-control" placeholder="••••••••" />
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="edit-user-role" class="form-control" required>
+            <option value="admin">Administrator (Full Access)</option>
+            <option value="staff">Staff (Dashboard Only)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%">Simpan Perubahan</button>
+      </form>
+    </div>
+  </div>
 </body>
 
 </html>

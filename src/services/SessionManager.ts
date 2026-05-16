@@ -56,7 +56,7 @@ export class SessionManager extends EventEmitter {
   async init(): Promise<void> {
     logger.info('📱 SessionManager initializing with WhatsApp-Web.js...');
     const db = getDb();
-    const [rows]: any = await db.query('SELECT * FROM wa_sessions WHERE status != "banned"');
+    const [rows]: any = await db.query('SELECT * FROM wa_sessions WHERE status != "banned" AND is_enabled = 1');
     
     for (const session of rows) {
       try {
@@ -103,9 +103,9 @@ export class SessionManager extends EventEmitter {
             '--disable-gpu',
             '--disable-extensions',
             '--disable-software-rasterizer',
-            '--disable-setuid-sandbox',
             '--ignore-certificate-errors',
             '--no-default-browser-check',
+            '--single-process'
           ]
         }
       });
@@ -329,6 +329,19 @@ export class SessionManager extends EventEmitter {
     const db = getDb();
     const [rows]: any = await db.query('SELECT * FROM wa_sessions');
     return rows;
+  }
+
+  async updateSessionEnabledStatus(sessionId: string, enabled: boolean): Promise<void> {
+    const db = getDb();
+    await db.query('UPDATE wa_sessions SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, sessionId]);
+    
+    if (!enabled) {
+      await this.disconnectSession(sessionId);
+    } else {
+      const dbSessions = await this.getAllSessionsFromDb();
+      const s = dbSessions.find(x => x.id === sessionId);
+      if (s) await this.connectSession(sessionId, s.name);
+    }
   }
 
   private async updateSessionDb(id: string, data: any): Promise<void> {

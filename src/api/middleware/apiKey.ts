@@ -53,5 +53,7 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
     return;
   }
 
+  (req as any).userId = 'api-key-system'; // Virtual ID for API Key auth
+  (req as any).isApiKeyAuth = true;
   next();
 }
