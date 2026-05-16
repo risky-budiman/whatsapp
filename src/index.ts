@@ -127,13 +127,22 @@ app.get('/login', (req, res) => {
 app.get('/', (req, res, next) => {
   const sid = req.cookies?.wa_sid;
   
-  // Debug log (penting untuk melihat apakah cookie terkirim)
+  // Debug log
   logger.info(`🔍 [GET] / | SID: ${sid ? 'Found' : 'NOT FOUND'}`);
 
   if (!sid) {
     return res.redirect('/login');
   }
   next();
+});
+
+// Diagnostic route
+app.get('/debug-session', (req, res) => {
+  res.json({
+    env: process.env.NODE_ENV,
+    cookies: req.cookies,
+    wa_sid_cookie: req.cookies?.wa_sid || 'MISSING'
+  });
 });
 
 app.use(express.static(path.join(__dirname, '../public')));

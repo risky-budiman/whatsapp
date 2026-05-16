@@ -45,13 +45,12 @@ router.post('/login', async (req: Request, res: Response) => {
       expiresAt
     ]);
 
-    // Set cookie - Adjusted for maximum compatibility on HTTP/IP
+    // Set cookie - TOTAL RELAXATION for debug
     res.cookie('wa_sid', sid, {
       httpOnly: true,
       secure: false, 
-      sameSite: 'lax',
       path: '/',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000 
     });
 
     res.json({
@@ -124,6 +123,21 @@ router.post('/logout', async (req: Request, res: Response) => {
   }
   res.clearCookie('wa_sid');
   res.json({ success: true });
+});
+
+/**
+ * @swagger
+ * /api/auth/debug-session:
+ *   get:
+ *     summary: Debug session info
+ *     tags: [Auth]
+ */
+router.get('/debug-session', (req: Request, res: Response) => {
+  res.json({
+    env: process.env.NODE_ENV,
+    cookies: req.cookies,
+    wa_sid_cookie: req.cookies?.wa_sid || 'MISSING'
+  });
 });
 
 /**
