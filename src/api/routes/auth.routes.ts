@@ -76,7 +76,8 @@ router.post('/login', async (req: Request, res: Response) => {
  *     tags: [Auth]
  */
 router.get('/me', async (req: Request, res: Response) => {
-  const sid = req.cookies?.wa_sid;
+  const headerToken = req.headers['x-auth-token'] || req.headers['X-Auth-Token'];
+  const sid = (req.cookies?.wa_sid || (Array.isArray(headerToken) ? headerToken[0] : headerToken)) as string;
 
   if (!sid) {
     return res.status(401).json({ success: false, message: 'Not authenticated' });
