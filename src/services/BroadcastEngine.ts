@@ -151,6 +151,34 @@ export class BroadcastEngine {
     logger.info(`📝 Campaign [${data.name}] created with ${data.recipients.length} recipients`);
     return campaignId;
   }
+
+  /**
+   * Resend failed messages for a specific campaign
+   */
+  async resendFailed(campaignId: string): Promise<number> {
+    const db = getDb();
+    
+    // 1. Reset failed messages back to pending
+    const [result]: any = await db.query(
+      "UPDATE wa_campaign_messages SET status = 'pending', retry_count = 0 WHERE campaign_id = ? AND status = 'failed'",
+      [campaignId]
+    );
+
+    if (result.affectedRows === 0) {
+      throw new Error('No failed messages found to resend');
+    }
+
+    // 2. Set campaign back to running status if it was completed or failed
+    await db.query(
+      "UPDATE wa_campaigns SET status = 'running', completed_at = NULL WHERE id = ?",
+      [campaignId]
+    );
+
+    // 3. Trigger the engine to process these messages
+    await this.startCampaign(campaignId);
+
+    return result.affectedRows;
+  }
 }
 
 // Singleton

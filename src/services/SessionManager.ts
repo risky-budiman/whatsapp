@@ -45,6 +45,14 @@ export class SessionManager extends EventEmitter {
     return SessionManager.instance;
   }
 
+  private isSameDay(date1: Date, date2: Date): boolean {
+    return (
+      date1.getFullYear() === date2.getFullYear() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getDate() === date2.getDate()
+    );
+  }
+
   async init(): Promise<void> {
     logger.info('📱 SessionManager initializing with WhatsApp-Web.js...');
     const db = getDb();
@@ -71,8 +79,7 @@ export class SessionManager extends EventEmitter {
     try {
       logger.info(`[DEBUG] Memulai WhatsApp-Web.js untuk: ${sessionId} (${name})`);
       
-      // Cleanup existing
-      const existing = this.sessions.get(sessionId);
+      // Cleanup existing if any (shouldn't happen with the check above, but for safety)
       if (existing) {
         try { await existing.client.destroy(); } catch (e) {}
         this.sessions.delete(sessionId);
@@ -84,7 +91,8 @@ export class SessionManager extends EventEmitter {
           dataPath: AUTH_DIR
         }),
         puppeteer: {
-          headless: true,
+          headless: true, // Set to true for production
+          handleSIGINT: false,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -92,26 +100,41 @@ export class SessionManager extends EventEmitter {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process',
             '--disable-gpu',
             '--disable-extensions',
-            '--disable-software-rasterizer'
+            '--disable-software-rasterizer',
+            '--disable-setuid-sandbox',
+            '--ignore-certificate-errors',
+            '--no-default-browser-check',
           ]
         }
       });
 
+      logger.info(`[${name}] Browser launching...`);
+
       const db = getDb();
       const [rows]: any = await db.query('SELECT daily_sent_count, daily_limit, phone_number, last_sent_at FROM wa_sessions WHERE id = ?', [sessionId]);
       const sessionDb = rows[0] || {};
+
+      let dailySentCount = sessionDb.daily_sent_count || 0;
+      const lastSentAt = sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null;
+      const today = new Date();
+
+      // Auto-reset daily count if it's a new day
+      if (lastSentAt && !this.isSameDay(lastSentAt, today)) {
+        logger.info(`[${name}] New day detected. Resetting daily_sent_count from ${dailySentCount} to 0.`);
+        dailySentCount = 0;
+        await db.query('UPDATE wa_sessions SET daily_sent_count = 0 WHERE id = ?', [sessionId]);
+      }
 
       const info: SessionInfo = {
         id: sessionId,
         name,
         phoneNumber: sessionDb.phone_number || null,
         status: 'connecting',
-        dailySentCount: sessionDb.daily_sent_count || 0,
+        dailySentCount: dailySentCount,
         dailyLimit: sessionDb.daily_limit || 200,
-        lastSentAt: sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null,
+        lastSentAt: lastSentAt,
       };
 
       this.sessions.set(sessionId, { client, info });
@@ -121,7 +144,6 @@ export class SessionManager extends EventEmitter {
         info.status = 'qr';
         info.qr = qr;
         try {
-          // Force Version 15 which has huge capacity
           const qrDataUrl = await QRCode.toDataURL(qr, { 
             version: 15,
             errorCorrectionLevel: 'L'
@@ -153,59 +175,8 @@ export class SessionManager extends EventEmitter {
           logger.warn(`[${name}] DB update failed: ${e}`);
         }
         
-        // Always emit connected, even if DB failed
         this.emit('connected', { sessionId, phoneNumber: fullJid });
         logger.info(`✅ [${name}] 'connected' event emitted!`);
-
-        // Sync contacts, groups, and history
-        try {
-          logger.info(`[SYNC] Menarik daftar kontak & grup dari WhatsApp...`);
-          const contacts = await client.getContacts();
-          const validContacts = contacts.filter((c: any) => 
-            c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
-          );
-
-          const chats = await client.getChats();
-          const groups = chats.filter((c: any) => c.isGroup);
-          
-          const allSync = [
-            ...validContacts.map((c: any) => ({
-              id: c.id._serialized,
-              name: c.name || c.pushname || c.id.user,
-              phone: c.id.user,
-            })),
-            ...groups.map((c: any) => ({
-              id: c.id._serialized,
-              name: c.name || c.id.user,
-              phone: c.id.user,
-            }))
-          ];
-
-          // Hanya emit kontak jika Live Chat Aktif
-          if (settingsService.isLiveChatEnabled()) {
-            this.emit('contacts.received', { sessionId, contacts: allSync });
-            logger.info(`[SYNC] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
-
-            // Sync recent messages for Live Chat
-            logger.info(`[SYNC] Menarik riwayat obrolan (Live Chat)...`);
-            let allMessages: any[] = [];
-            const recentChats = chats.slice(0, 20); // Top 20 recent chats
-            for (const chat of recentChats) {
-              try {
-                const msgs = await chat.fetchMessages({ limit: 15 });
-                allMessages.push(...msgs);
-              } catch (e) {}
-            }
-            this.emit('history.received', { sessionId, messages: allMessages });
-          } else {
-            logger.info(`[SYNC] Live Chat OFF: Melewatkan sinkronisasi riwayat pesan.`);
-          }
-
-          // Signal frontend to close modal
-          this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
-        } catch (e) {
-          logger.warn(`[SYNC] Gagal: ${e}`);
-        }
       });
 
       client.on('authenticated', () => {
@@ -227,11 +198,7 @@ export class SessionManager extends EventEmitter {
 
       client.on('message', async (msg: any) => {
         if (msg.from === 'status@broadcast') return;
-        
-        // Cek apakah Live Chat sedang aktif
-        if (!settingsService.isLiveChatEnabled()) {
-          return;
-        }
+        if (!settingsService.isLiveChatEnabled()) return;
 
         let pushName = 'User';
         try {
@@ -239,16 +206,37 @@ export class SessionManager extends EventEmitter {
           pushName = contact.name || contact.pushname || contact.number || 'User';
         } catch (e) {}
 
-        this.emit('message.received', {
+        const eventData = {
           sessionId,
-          from: msg.from,
+          phone_number: msg.from,
           messageId: msg.id.id,
           pushName,
-          text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
-        });
+          message_text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
+          is_from_me: msg.fromMe,
+          created_at: new Date()
+        };
+
+        this.emit('message', eventData);
+        logger.info(`[EVENT] Incoming message from ${msg.from}`);
       });
 
-      // Track message status (Sent, Delivered, Read)
+      // Handle self-sent messages (e.g. from phone)
+      client.on('message_create', async (msg: any) => {
+        if (!msg.fromMe) return; // 'message' event handles incoming
+        if (msg.to === 'status@broadcast') return;
+        
+        const eventData = {
+          sessionId,
+          phone_number: msg.to,
+          messageId: msg.id.id,
+          message_text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
+          is_from_me: true,
+          created_at: new Date()
+        };
+        
+        this.emit('message', eventData);
+      });
+
       client.on('message_ack', async (msg: any, ack: number) => {
         let status = 'sent';
         if (ack === 2) status = 'delivered';
@@ -259,33 +247,19 @@ export class SessionManager extends EventEmitter {
           const db = getDb();
           const messageId = msg.id._serialized || msg.id.id;
           
-          logger.info(`[ACK] Status update for ${messageId}: ${ack} (${status})`);
-
-          // Update wa_chats (Live Chat)
           await db.query('UPDATE wa_chats SET status = ? WHERE message_id = ?', [status, messageId]);
-          
-          // Update wa_message_logs (History)
-          const [res]: any = await db.query(`
+          await db.query(`
             UPDATE wa_message_logs 
             SET status = ? 
             WHERE metadata->'$.waMessageId' = ? OR metadata->'$.waMessageId' = ?
           `, [status, messageId, msg.id.id]);
           
-          if (res.affectedRows > 0) {
-            logger.info(`[ACK] Successfully updated log status to ${status} for ${messageId}`);
-          }
-          
-          this.emit('message.ack', {
-            sessionId,
-            messageId,
-            status
-          });
+          this.emit('message.ack', { sessionId, messageId, status });
         } catch (e: any) {
           logger.warn(`[ACK] Error updating status: ${e.message}`);
         }
       });
 
-      // Start the client
       client.initialize().catch((err: any) => {
         if (!err.message.includes('EBUSY') && !err.message.includes('locked')) {
           logger.error(`[CRITICAL] Error initializing client ${sessionId}: ${err.message}`);
@@ -312,17 +286,11 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
-        logger.info(`[DISCONNECT] Shutting down browser for session: ${sessionId}`);
         await active.client.destroy();
-      } catch (err: any) {
-        logger.warn(`[DISCONNECT] Error during destroy: ${err.message}`);
-      }
+      } catch (err: any) {}
       this.sessions.delete(sessionId);
-      
-      // Update DB status to disconnected
       const db = getDb();
       await db.query('UPDATE wa_sessions SET status = "disconnected" WHERE id = ?', [sessionId]);
-      
       this.emit('status.update', { sessionId, status: 'disconnected' });
     }
   }
@@ -331,16 +299,10 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
-        logger.info(`[CLEANUP] Destroying client for session: ${sessionId}`);
-        // logout() will clear the session on WhatsApp server, destroy() closes the browser
         try { await active.client.logout(); } catch (e) {}
         await active.client.destroy();
-      } catch (err: any) {
-        logger.warn(`[CLEANUP] Error during destroy: ${err.message}`);
-      }
+      } catch (err: any) {}
       this.sessions.delete(sessionId);
-      
-      // Give Windows/Puppeteer some time to release file locks (very common on Windows)
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
@@ -350,26 +312,8 @@ export class SessionManager extends EventEmitter {
     const sessionDir = path.join(AUTH_DIR, `session-${sessionId}`);
     if (fs.existsSync(sessionDir)) {
       try {
-        // Attempt recursive delete with a retry loop for Windows
-        let attempts = 0;
-        const maxAttempts = 3;
-        while (attempts < maxAttempts) {
-          try {
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-            logger.info(`[CLEANUP] Successfully deleted auth directory for ${sessionId}`);
-            break;
-          } catch (e) {
-            attempts++;
-            if (attempts >= maxAttempts) throw e;
-            logger.warn(`[CLEANUP] Retrying folder deletion for ${sessionId} (Attempt ${attempts})...`);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          }
-        }
-      } catch (err: any) {
-        logger.error(`[CLEANUP] Failed to delete auth directory: ${err.message}`);
-        // We don't throw here to allow the UI to continue, 
-        // the folder can be manually deleted later or will be overwritten next time
-      }
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      } catch (err: any) {}
     }
   }
 
@@ -399,14 +343,8 @@ export class SessionManager extends EventEmitter {
     const name = active?.info?.name || 'Unknown';
     
     if (active) {
-      logger.info(`🔄 [FORCE] Restarting session ${name}...`);
-      try {
-        if (active.client) {
-          await active.client.destroy().catch(() => {});
-        }
-      } catch (e) {}
+      try { await active.client.destroy().catch(() => {}); } catch (e) {}
       this.sessions.delete(sessionId);
-      // Tunggu sebentar agar Windows melepas lock folder
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
@@ -419,7 +357,6 @@ export class SessionManager extends EventEmitter {
       throw new Error('Session not active');
     }
     
-    // Use native @c.us format
     let chatId = to;
     if (!chatId.includes('@')) {
       chatId = `${chatId}@c.us`;
@@ -430,24 +367,31 @@ export class SessionManager extends EventEmitter {
         const chat = await active.client.getChatById(chatId);
         await chat.sendSeen();
         await chat.sendStateTyping();
-        
-        // Simulasikan waktu mengetik (1-3 detik)
         const typingDelay = Math.floor(Math.random() * 2000) + 1000;
         await new Promise(resolve => setTimeout(resolve, typingDelay));
-        
         return await active.client.sendMessage(chatId, text);
       } catch (err) {
-        // Fallback jika getChatById gagal (misal nomor baru)
         return await active.client.sendMessage(chatId, text);
       }
     })();
     
-    // Update daily count
-    active.info.dailySentCount++;
-    active.info.lastSentAt = new Date();
+    // Update daily count and handle reset
+    const today = new Date();
+    if (active.info.lastSentAt && !this.isSameDay(active.info.lastSentAt, today)) {
+      active.info.dailySentCount = 1;
+    } else {
+      active.info.dailySentCount++;
+    }
+    active.info.lastSentAt = today;
     
     const db = getDb();
-    await db.query('UPDATE wa_sessions SET daily_sent_count = daily_sent_count + 1, last_sent_at = NOW() WHERE id = ?', [sessionId]);
+    await db.query(`
+      UPDATE wa_sessions 
+      SET 
+        daily_sent_count = IF(DATE(last_sent_at) != CURDATE(), 1, daily_sent_count + 1), 
+        last_sent_at = NOW() 
+      WHERE id = ?
+    `, [sessionId]);
     
     return result;
   }
@@ -483,6 +427,67 @@ export class SessionManager extends EventEmitter {
     if (sets.length > 0) {
       values.push(sessionId);
       await db.query(`UPDATE wa_sessions SET ${sets.join(', ')} WHERE id = ?`, values);
+    }
+  }
+
+  async syncSession(sessionId: string): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (!active || active.info.status !== 'active') {
+      logger.warn(`[SYNC] Sesi ${sessionId} tidak aktif, mengabaikan sinkronisasi.`);
+      return;
+    }
+
+    const { client, info } = active;
+    const name = info.name;
+
+    try {
+      logger.info(`[SYNC] [${name}] Memulai sinkronisasi kontak & grup...`);
+      this.emit('sync.progress', { sessionId, status: 'started', message: 'Mengambil data dari WhatsApp...' });
+
+      const contacts = await client.getContacts();
+      const validContacts = contacts.filter((c: any) => 
+        c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
+      );
+
+      const chats = await client.getChats();
+      const groups = chats.filter((c: any) => c.isGroup);
+      
+      const allSync = [
+        ...validContacts.map((c: any) => ({
+          id: c.id._serialized,
+          name: c.name || c.pushname || c.id.user,
+          phone: c.id.user,
+        })),
+        ...groups.map((c: any) => ({
+          id: c.id._serialized,
+          name: c.name || c.id.user,
+          phone: c.id.user,
+        }))
+      ];
+
+      this.emit('contacts.received', { sessionId, contacts: allSync });
+      logger.info(`[SYNC] [${name}] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
+
+      if (settingsService.isLiveChatEnabled()) {
+        logger.info(`[SYNC] [${name}] Menarik riwayat obrolan (Live Chat)...`);
+        let allMessages: any[] = [];
+        const recentChats = chats.slice(0, 20); 
+        for (const chat of recentChats) {
+          try {
+            const msgs = await chat.fetchMessages({ limit: 15 });
+            allMessages.push(...msgs);
+          } catch (e) {}
+        }
+        this.emit('history.received', { sessionId, messages: allMessages });
+      }
+
+      this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
+      logger.info(`✅ [SYNC] [${name}] Sinkronisasi selesai.`);
+
+    } catch (err: any) {
+      logger.error(`❌ [SYNC] [${name}] Gagal: ${err.message}`);
+      this.emit('sync.progress', { sessionId, status: 'failed', message: `Gagal: ${err.message}` });
+      throw err;
     }
   }
 

@@ -41,7 +41,6 @@ const api = {
 
   contacts: {
     list: () => api.fetch('/contacts?limit=100'),
-    syncLaravel: () => api.fetch('/contacts/sync-laravel', { method: 'POST' }),
     delete: (id) => api.fetch(`/contacts/${id}`, { method: 'DELETE' })
   },
 

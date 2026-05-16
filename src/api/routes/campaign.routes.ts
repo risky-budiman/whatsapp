@@ -35,6 +35,85 @@ router.get('/', async (_req: Request, res: Response) => {
 
 /**
  * @swagger
+ * /api/campaigns/send-tag:
+ *   get:
+ *     summary: Broadcast by Tag via GET (for alerts)
+ *     tags: [Campaigns]
+ *     parameters:
+ *       - in: query
+ *         name: tag
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Contact tag name
+ *       - in: query
+ *         name: message
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Broadcast message content
+ *       - in: query
+ *         name: api_key
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Your API Key
+ *       - in: query
+ *         name: name
+ *         schema:
+ *           type: string
+ *         description: Campaign name (optional)
+ *     responses:
+ *       200:
+ *         description: Campaign started successfully
+ */
+// GET /api/campaigns/send-tag — Quick broadcast by tag via URL
+router.get('/send-tag', async (req: Request, res: Response) => {
+  try {
+    const { tag, message, name } = req.query;
+
+    if (!tag || !message) {
+      return res.status(400).json({ success: false, message: 'Missing tag or message query parameters' });
+    }
+
+    const db = getDb();
+    
+    // 1. Get recipients by tag
+    // Handle JSON search for tags column
+    const [contacts]: any = await db.query(
+      "SELECT phone_number as phone, name FROM wa_contacts WHERE JSON_CONTAINS(tags, ?)",
+      [JSON.stringify(tag)]
+    );
+
+    if (contacts.length === 0) {
+      return res.status(404).json({ success: false, message: `No contacts found with tag: ${tag}` });
+    }
+
+    // 2. Create Campaign
+    const engine = getBroadcastEngine();
+    const campaignId = await engine.createCampaign({
+      name: (name as string) || `Broadcast API - ${tag}`,
+      template: message as string,
+      recipients: contacts,
+      createdBy: 'api_get'
+    });
+
+    // 3. Start Campaign Immediately (Auto-Start)
+    await engine.startCampaign(campaignId);
+
+    res.json({
+      success: true,
+      message: `Campaign created and started for ${contacts.length} recipients`,
+      data: { campaignId, recipientCount: contacts.length }
+    });
+  } catch (err: any) {
+    logger.error(`GET /campaigns/send-tag error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/campaigns:
  *   post:
  *     summary: Create a new campaign
@@ -187,6 +266,19 @@ router.post('/:id/resume', async (req: Request, res: Response) => {
     await engine.startCampaign(id); // start handles resume logic
     
     res.json({ success: true, message: 'Campaign resumed' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/campaigns/:id/resend-failed — Resend only failed messages
+router.post('/:id/resend-failed', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const engine = getBroadcastEngine();
+    const count = await engine.resendFailed(id);
+    
+    res.json({ success: true, message: `Resending ${count} failed messages...`, data: { count } });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

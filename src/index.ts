@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
@@ -47,7 +48,12 @@ app.use((req, res, next) => {
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// API Routes
+// API Authentication Middleware
+import { apiKeyAuth } from './api/middleware/apiKey';
+
+// API Routes (Protected by API Key)
+app.use('/api', apiKeyAuth);
+
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/campaigns', campaignRoutes);
@@ -82,8 +88,33 @@ app.use(express.static(path.join(__dirname, '../public')));
  *         description: Server is up
  */
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+app.get('/health', async (req, res) => {
+  const memory = process.memoryUsage();
+  const dbOk = await testDbConnection().catch(() => false);
+  const redisOk = await testRedisConnection().catch(() => false);
+  const sm = getSessionManager();
+  const sessions = sm.getAllSessions();
+
+  res.json({
+    status: (dbOk && redisOk) ? 'ok' : 'warning',
+    uptime: process.uptime(),
+    memory: {
+      heapUsed: Math.round(memory.heapUsed / 1024 / 1024),
+      rss: Math.round(memory.rss / 1024 / 1024)
+    },
+    services: {
+      database: dbOk ? 'online' : 'offline',
+      redis: redisOk ? 'online' : 'offline'
+    },
+    sessions: {
+      total: sessions.length,
+      active: sessions.filter(s => s.status === 'active').length,
+      disconnected: sessions.filter(s => s.status !== 'active').length
+    },
+    platform: process.platform,
+    load: os.loadavg(),
+    version: '1.9.5'
+  });
 });
 
 // Start Server

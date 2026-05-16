@@ -13,6 +13,7 @@
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "bullmq": "^5.34.8",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
@@ -27,6 +28,7 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.2",
     "@types/hapi__boom": "^7.4.1",

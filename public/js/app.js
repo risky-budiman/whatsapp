@@ -50,26 +50,32 @@ function showToast(message, type = 'success', title = '') {
 // window.alert = (msg) => showToast(msg, 'info');
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize navigation immediately
   initNavigation();
-  initChatStream();
-  loadView(activeView); // Default view
-  syncSettings();
+  
+  // Initial load
+  loadView(activeView); 
+  
+  // Fetch settings first, then init stream
+  syncSettings().then(() => {
+    initChatStream();
+  });
 });
 
 async function syncSettings() {
   try {
     const res = await wa_api.settings.get();
-    const isEnabled = res.data.liveChatEnabled;
-    const toggle = document.getElementById('live-chat-toggle');
-    const text = document.getElementById('live-chat-status-text');
+    const apiKey = res.data.apiKey || res.data.api_key;
     
-    if (toggle && text) {
-      toggle.checked = isEnabled;
-      text.innerText = isEnabled ? 'ON' : 'OFF';
-      text.style.color = isEnabled ? 'var(--success)' : 'var(--danger)';
+    // Sync API Key globally
+    if (apiKey) {
+      CURRENT_API_KEY = apiKey;
+      console.log("🔐 API Key synced from server.");
+      // Re-init stream with correct key if already open
+      if (chatEventSource) initChatStream();
     }
   } catch (err) {
-    console.warn("Gagal sinkronisasi settings:", err);
+    console.warn("⚠️ Initial sync failed. Dashboard will use bypass for background fetches.");
   }
 }
 
@@ -167,10 +173,42 @@ function loadView(viewId) {
   if (viewId === 'contacts') renderContacts();
   if (viewId === 'groups') renderGroups();
   if (viewId === 'logs') renderMessageLogs();
-  if (viewId === 'campaigns') renderCampaigns();
-  if (viewId === 'live-chat') {
-    renderLiveChat();
-    document.getElementById('chat-badge').style.display = 'none';
+  if (viewId === 'api-settings') {
+    fetchApiKey();
+  }
+}
+
+async function fetchApiKey() {
+  try {
+    const res = await wa_api.settings.get();
+    const apiKey = res.data.apiKey;
+    const input = document.getElementById('api-key-input');
+    if (input) input.value = apiKey;
+    
+    // Update global placeholder in tips
+    const placeholder = document.querySelector('.api-key-placeholder');
+    if (placeholder) placeholder.innerText = apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4);
+  } catch (err) {
+    console.error("Gagal mengambil API Key:", err);
+  }
+}
+
+async function handleRegenerateKey() {
+  const confirmed = await showConfirm('Kunci lama Anda tidak akan bisa digunakan lagi. Semua integrasi sistem alert akan terputus sampai Anda memperbarui kuncinya. Lanjutkan?', 'Regenerate API Key', 'danger');
+  if (!confirmed) return;
+
+  try {
+    showToast("Sedang menggenerate kunci baru...");
+    const res = await wa_api.fetch('/settings/regenerate-api-key', { method: 'POST' });
+    
+    // Update local variable so subsequent requests use the new key
+    CURRENT_API_KEY = res.data.apiKey;
+    
+    // Refresh UI
+    fetchApiKey();
+    showToast("API Key berhasil diupdate!", "success");
+  } catch (err) {
+    showToast("Gagal regenerate: " + err.message, "error");
   }
 }
 
@@ -180,7 +218,7 @@ const logLimit = 50;
 
 async function renderMessageLogs() {
   const tbody = document.getElementById('logs-tbody');
-  tbody.innerHTML = `<tr><td colspan="6" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center">Loading...</td></tr>`;
   
   try {
     const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
@@ -189,7 +227,7 @@ async function renderMessageLogs() {
     const total = (res.meta && typeof res.meta.total !== 'undefined') ? res.meta.total : logs.length;
 
     if (logs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada riwayat pesan</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada riwayat pesan</td></tr>`;
       return;
     }
 
@@ -198,32 +236,38 @@ async function renderMessageLogs() {
       let statusHtml = '';
       
       if (l.status === 'sent') {
-        statusHtml = `<span class="badge secondary" title="Terkirim (Centang 1)"><i class="fa-solid fa-check"></i> Sent</span>`;
+        statusHtml = `<span class="status-badge sent" style="background: rgba(16, 185, 129, 0.1); color: #10b981;"><i class="fa-solid fa-check"></i> SENT</span>`;
       } else if (l.status === 'delivered') {
-        statusHtml = `<span class="badge active" title="Diterima (Centang 2)"><i class="fa-solid fa-check-double"></i> Delivered</span>`;
+        statusHtml = `<span class="status-badge delivered" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;"><i class="fa-solid fa-check-double"></i> DELIVERED</span>`;
       } else if (l.status === 'read') {
-        statusHtml = `<span class="badge active" style="background: rgba(52, 183, 241, 0.2); color: #34b7f1; border-color: rgba(52, 183, 241, 0.3);" title="Dibaca (Centang Biru)"><i class="fa-solid fa-check-double"></i> Read</span>`;
+        statusHtml = `<span class="status-badge read" style="background: rgba(52, 183, 241, 0.1); color: #34b7f1;"><i class="fa-solid fa-check-double"></i> READ</span>`;
       } else if (l.status === 'failed') {
-        statusHtml = `
-          <div class="status-action">
-            <span class="badge danger"><i class="fa-solid fa-triangle-exclamation"></i> Failed</span>
-            <button class="btn-icon mini warning" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
-              <i class="fa-solid fa-rotate-right"></i>
-            </button>
-          </div>
-        `;
+        statusHtml = `<span class="status-badge failed" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> FAILED</span>`;
       } else {
-        statusHtml = `<span class="badge secondary">${l.status}</span>`;
+        statusHtml = `<span class="status-badge received">${l.status.toUpperCase()}</span>`;
       }
+
+      const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
 
       return `
         <tr>
           <td>${logOffset + index + 1}</td>
-          <td>${l.target_phone ? l.target_phone.split('@')[0] : '-'}</td>
-          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content || ''}</td>
-          <td><span class="badge secondary" style="font-size: 0.65rem;">${l.session_id ? l.session_id.substring(0,8) : 'System'}</span></td>
+          <td>${phone}</td>
+          <td class="cell-message" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content || ''}</td>
+          <td><span class="badge secondary" style="font-size: 0.7rem; font-weight: 600;">${l.session_name || 'System'}</span></td>
           <td style="font-size: 0.8rem;">${time}</td>
           <td>${statusHtml}</td>
+          <td class="actions-cell">
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+              ${l.status === 'failed' ? `
+              <button class="btn-icon" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
+                <i class="fa-solid fa-rotate"></i>
+              </button>` : ''}
+              <button class="btn-icon danger" onclick="deleteMessageLog('${l.id}')" title="Hapus">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
@@ -233,7 +277,7 @@ async function renderMessageLogs() {
     document.getElementById('btn-prev-log').disabled = logOffset === 0;
     document.getElementById('btn-next-log').disabled = (logOffset + logLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
   }
 }
 
@@ -261,9 +305,22 @@ async function resendLogMessage(logId) {
     });
 
     showToast("Pesan berhasil dikirim ulang!");
-    renderMessageLogs();
+    if (activeView === 'dashboard') renderDashboard();
+    if (activeView === 'logs') renderMessageLogs();
   } catch (err) {
     showToast("Gagal kirim ulang: " + err.message, "error");
+  }
+}
+
+async function deleteMessageLog(id) {
+  const confirmed = await showConfirm('Hapus log pesan ini dari riwayat?', 'Hapus Riwayat', 'danger');
+  if (!confirmed) return;
+  try {
+    await wa_api.chats.deleteLog(id);
+    if (activeView === 'dashboard') renderDashboard();
+    if (activeView === 'logs') renderMessageLogs();
+  } catch (err) {
+    showToast("Gagal menghapus log: " + err.message, "error");
   }
 }
 
@@ -273,8 +330,29 @@ function changeLogPage(dir) {
   renderMessageLogs();
 }
 
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+
+  const dDisplay = d > 0 ? d + "d " : "";
+  const hDisplay = h > 0 ? h + "h " : "";
+  const mDisplay = m > 0 ? m + "m " : "";
+  const sDisplay = s > 0 ? s + "s" : "";
+  return dDisplay + hDisplay + mDisplay + (d === 0 && h === 0 ? sDisplay : "");
+}
+
 // ─── DASHBOARD & STATS ───
+let dashboardRefreshInterval = null;
+
 async function renderDashboard() {
+  // Clear any existing interval to avoid duplicates
+  if (dashboardRefreshInterval) {
+    clearInterval(dashboardRefreshInterval);
+    dashboardRefreshInterval = null;
+  }
+
   try {
     const res = await wa_api.settings.getStats();
     const stats = res.data;
@@ -284,34 +362,83 @@ async function renderDashboard() {
     document.getElementById('dash-messages-today').innerText = stats.messagesToday;
     document.getElementById('dash-total-broadcast').innerText = stats.totalBroadcasts;
 
+    // Fetch Health / Uptime / Memory / Services
+    try {
+      const healthRes = await fetch('/health').then(r => r.json());
+      const uptimeEl = document.getElementById('dash-server-uptime');
+      const memoryEl = document.getElementById('dash-memory-usage');
+      const pulseEl = document.getElementById('server-status-pulse');
+      
+      const dbStatusEl = document.getElementById('dash-db-status');
+      const redisStatusEl = document.getElementById('dash-redis-status');
+      const platformEl = document.getElementById('dash-platform');
+      
+      if (uptimeEl) uptimeEl.innerText = formatUptime(healthRes.uptime);
+      if (memoryEl) memoryEl.innerText = healthRes.memory.heapUsed + ' MB';
+      
+      if (pulseEl) {
+        pulseEl.style.backgroundColor = healthRes.status === 'ok' ? 'var(--primary)' : 'var(--danger)';
+      }
+
+      if (dbStatusEl) {
+        dbStatusEl.innerText = `DB: ${healthRes.services.database.toUpperCase()}`;
+        dbStatusEl.className = `status-badge ${healthRes.services.database === 'online' ? 'sent' : 'failed'}`;
+      }
+      if (redisStatusEl) {
+        redisStatusEl.innerText = `RD: ${healthRes.services.redis.toUpperCase()}`;
+        redisStatusEl.className = `status-badge ${healthRes.services.redis === 'online' ? 'sent' : 'failed'}`;
+      }
+      if (platformEl) {
+        platformEl.innerText = `OS: ${healthRes.platform.toUpperCase()}`;
+      }
+    } catch (e) {
+      console.warn("Gagal mengambil data health:", e);
+    }
+
     // Recent Logs
     const logRes = await wa_api.chats.getLogs({ limit: 5 });
     const tbody = document.getElementById('dash-recent-logs');
     
     if (logRes.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">Belum ada aktivitas</td></tr>`;
-      return;
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Belum ada aktivitas</td></tr>`;
+    } else {
+      tbody.innerHTML = logRes.data.map(l => {
+        const time = new Date(l.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const statusClass = l.status || 'sent';
+        const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
+        
+        return `
+          <tr>
+            <td>${phone}</td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content}</td>
+            <td>${time}</td>
+            <td><span class="status-badge ${statusClass}">${l.status.toUpperCase()}</span></td>
+            <td>
+              <div style="display: flex; gap: 8px;">
+                ${l.status === 'failed' ? `
+                <button class="btn-icon" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
+                  <i class="fa-solid fa-rotate"></i>
+                </button>` : ''}
+                <button class="btn-icon danger" onclick="deleteMessageLog('${l.id}')" title="Hapus">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
-
-    tbody.innerHTML = logRes.data.map(l => {
-      const time = new Date(l.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      const statusClass = l.status === 'sent' ? 'active' : 'failed';
-      return `
-        <tr>
-          <td>${l.target_phone.split('@')[0]}</td>
-          <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${l.message_content}</td>
-          <td>${time}</td>
-          <td><span class="badge ${statusClass}">${l.status}</span></td>
-        </tr>
-      `;
-    }).join('');
   } catch (err) {
     console.error("Gagal memuat dashboard:", err);
-    ['dash-active-sessions', 'dash-total-contacts', 'dash-messages-today', 'dash-total-broadcast'].forEach(id => {
+    ['dash-active-sessions', 'dash-total-contacts', 'dash-messages-today', 'dash-total-broadcast', 'dash-server-uptime', 'dash-memory-usage'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.innerText = 'Err';
+      if (el && el.innerText === '...') el.innerText = 'Error'; 
     });
-    showToast("Gagal memuat statistik: " + err.message, "error");
+  } finally {
+    // Always schedule a refresh if still on dashboard
+    if (activeView === 'dashboard') {
+      dashboardRefreshInterval = setTimeout(renderDashboard, 15000); // Auto refresh every 15s
+    }
   }
 }
 
@@ -344,8 +471,9 @@ async function renderSessions() {
     }
 
     grid.innerHTML = sessions.map((s) => {
-      const statusText = s.status.charAt(0).toUpperCase() + s.status.slice(1);
-      const isTryingToConnect = ['active', 'qr', 'connecting'].includes(s.status);
+      const statusText = s.status === 'qr' ? 'SCAN QR' : s.status.charAt(0).toUpperCase() + s.status.slice(1);
+      const isActive = s.status === 'active';
+      const isWaiting = ['qr', 'connecting'].includes(s.status);
       
       return `
         <div class="session-card ${s.status}">
@@ -353,7 +481,7 @@ async function renderSessions() {
           <div class="session-card-header">
             <div class="session-info">
               <h3>${s.name}</h3>
-              <p>${s.phone_number || 'Menunggu Koneksi...'}</p>
+              <p>${s.phone_number || (isWaiting ? 'Menunggu Scan...' : 'Terputus')}</p>
             </div>
             <span class="badge ${s.status}">${statusText}</span>
           </div>
@@ -370,17 +498,22 @@ async function renderSessions() {
           </div>
 
           <div class="session-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-            ${!isTryingToConnect ? `
-              <button class="btn btn-primary" style="flex: 1" onclick="openQrModal('${s.id}')">
-                <i class="fa-solid fa-qrcode"></i> Hubungkan
-              </button>
-            ` : `
+            ${isActive ? `
               <button class="btn btn-warning" style="flex: 2" onclick="disconnectSession('${s.id}')" title="Putuskan Koneksi">
                 <i class="fa-solid fa-power-off"></i> Putuskan
               </button>
-              <button class="btn btn-outline" style="flex: 0" onclick="clearSessionData('${s.id}')" title="Bersihkan Chat & Kontak">
+              <button class="btn btn-outline" style="flex: 0" onclick="clearSessionData('${s.id}')" title="Bersihkan Cache Sesi">
                 <i class="fa-solid fa-broom"></i>
               </button>
+            ` : `
+              <button class="btn btn-primary" style="flex: 2" onclick="openQrModal('${s.id}')">
+                <i class="fa-solid fa-qrcode"></i> ${isWaiting ? 'Lihat QR' : 'Hubungkan'}
+              </button>
+              ${isWaiting ? `
+                <button class="btn btn-outline-warning" style="flex: 0" onclick="disconnectSession('${s.id}')" title="Batalkan Koneksi">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              ` : ''}
             `}
             <button class="btn btn-outline-secondary" style="flex: 0; padding: 0 12px;" onclick="openEditSessionModal('${s.id}')" title="Edit">
               <i class="fa-solid fa-pen-to-square"></i>
@@ -487,9 +620,15 @@ async function openQrModal(id) {
     
     qrEventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      const now = new Date().toLocaleTimeString();
       
       if (data.type === 'qr') {
-        if (container) container.innerHTML = `<img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto;">`;
+        if (container) container.innerHTML = `
+          <img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+            <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
+          </div>
+        `;
         if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
       } else if (data.type === 'connected') {
         if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
@@ -514,12 +653,8 @@ async function openQrModal(id) {
     };
 
     qrEventSource.onerror = () => {
-      if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--danger-color)">
-        <i class="fa-solid fa-triangle-exclamation fa-2x" style="margin-bottom:10px"></i>
-        <span>Koneksi ke server terputus</span>
-      </div>`;
-      if (msg) msg.innerText = 'Gagal memuat QR. Silakan coba lagi.';
-      qrEventSource.close();
+      if (msg) msg.innerText = 'Koneksi terganggu, mencoba menyambung kembali...';
+      console.warn("SSE connection lost. Browser will auto-reconnect.");
     };
 
   } catch (err) {
@@ -536,6 +671,7 @@ async function disconnectSession(id) {
     await wa_api.sessions.disconnect(id);
     showToast("Koneksi diputuskan.");
     renderSessions();
+    if (activeView === 'dashboard') renderDashboard();
   } catch (err) {
     showToast("Gagal memutuskan koneksi: " + err.message, "error");
   }
@@ -547,6 +683,7 @@ async function deleteSession(id) {
   try {
     await wa_api.sessions.delete(id);
     renderSessions();
+    if (activeView === 'dashboard') renderDashboard();
   } catch (err) {
     showToast(err.message, "error");
   }
@@ -561,6 +698,7 @@ async function clearSessionData(id) {
     if (activeView === 'contacts') renderContacts();
     if (activeView === 'groups') renderGroups();
     if (activeView === 'live-chat') renderLiveChat();
+    if (activeView === 'dashboard') renderDashboard();
   } catch (err) {
     showToast("Gagal menghapus data: " + err.message, "error");
   }
@@ -778,20 +916,7 @@ function filterGroups() {
   displayGroups(filtered);
 }
 
-async function syncLaravel() {
-  const overlay = document.getElementById('sync-overlay');
-  overlay.style.display = 'flex';
 
-  try {
-    const res = await wa_api.fetch('/contacts/sync-laravel', { method: 'POST' });
-    showToast(`Sinkronisasi selesai! Ditambahkan: ${res.data.added}, Diperbarui: ${res.data.updated}`);
-    renderContacts();
-  } catch (err) {
-    showToast("Gagal sinkronisasi: " + err.message, "error");
-  } finally {
-    overlay.style.display = 'none';
-  }
-}
 
 async function syncWhatsApp() {
   const overlay = document.getElementById('sync-overlay');
@@ -845,7 +970,8 @@ async function renderCampaigns() {
         <td><strong>${c.name}</strong></td>
         <td><span class="badge ${c.status}">${c.status}</span></td>
         <td>${c.total_recipients}</td>
-        <td>${c.sent_count}</td>
+        <td><span class="badge active">${c.sent_count}</span></td>
+        <td><span class="badge danger">${c.failed_count || 0}</span></td>
         <td>
           <div style="width: 100%; background: var(--bg-dark); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 5px;">
             <div style="width: ${progress}%; background: var(--primary); height: 100%;"></div>
@@ -853,9 +979,14 @@ async function renderCampaigns() {
           <small>${progress}%</small>
         </td>
         <td>
-          ${['pending', 'draft', 'paused'].includes(c.status) 
-            ? `<button class="btn btn-sm btn-primary" onclick="startCampaign('${c.id}')">Mulai</button>` 
-            : ''}
+          <div style="display: flex; gap: 5px;">
+            ${['pending', 'draft', 'paused'].includes(c.status) 
+              ? `<button class="btn btn-sm btn-primary" onclick="startCampaign('${c.id}')" title="Mulai"><i class="fa-solid fa-play"></i></button>` 
+              : ''}
+            ${(c.failed_count > 0) 
+              ? `<button class="btn btn-sm btn-warning" onclick="resendCampaignFailed('${c.id}')" title="Resend Failed"><i class="fa-solid fa-rotate-right"></i></button>` 
+              : ''}
+          </div>
         </td>
       </tr>
     `}).join('');
@@ -865,9 +996,23 @@ async function renderCampaigns() {
 }
 
 async function startCampaign(id) {
-  if (!confirm('Mulai kirim broadcast ini?')) return;
+  const confirmed = await showConfirm('Mulai kirim broadcast ini?', 'Konfirmasi Broadcast');
+  if (!confirmed) return;
   try {
     await wa_api.campaigns.start(id);
+    renderCampaigns();
+    showToast("Campaign dimulai!");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+async function resendCampaignFailed(id) {
+  const confirmed = await showConfirm('Kirim ulang pesan yang gagal di campaign ini?', 'Resend Failed');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.campaigns.resendFailed(id);
+    showToast(res.message);
     renderCampaigns();
   } catch (err) {
     showToast(err.message, "error");
@@ -935,8 +1080,8 @@ async function createCampaign(e) {
 
     const res = await wa_api.campaigns.create(payload);
     
-    // Auto-start campaign
-    await wa_api.campaigns.start(res.id);
+    // Auto-start campaign (Fixed reference to campaignId)
+    await wa_api.campaigns.start(res.data.campaignId);
     
     closeModal('modal-add-campaign');
     document.getElementById('campaign-name').value = '';
@@ -1098,7 +1243,7 @@ async function sendChatReply(e) {
 
 function initChatStream() {
   if (chatEventSource) chatEventSource.close();
-  chatEventSource = new EventSource(`/api/chats/stream/events?api_key=${API_KEY}`);
+  chatEventSource = new EventSource(`/api/chats/stream/events?api_key=${CURRENT_API_KEY}`);
   
   chatEventSource.onmessage = (e) => {
     const data = JSON.parse(e.data);
@@ -1120,10 +1265,8 @@ function initChatStream() {
 
     // Handle message status updates (Checks)
     if (data.type === 'message_ack') {
-      const logsTab = document.querySelector('.nav-link[data-view="message-logs"]');
-      if (logsTab && logsTab.classList.contains('active')) {
-        renderMessageLogs();
-      }
+      if (activeView === 'dashboard') renderDashboard();
+      if (activeView === 'logs') renderMessageLogs();
       return;
     }
 
@@ -1149,12 +1292,21 @@ function initChatStream() {
     }
 
     // Notification badge for messages
+    const isDashboard = activeView === 'dashboard';
     const chatTab = document.querySelector('.nav-link[data-view="live-chat"]');
+    
+    if (isDashboard) {
+      renderDashboard(); // Auto refresh dash if on dashboard
+    }
+    
+    if (!chatTab) return; // Exit if Live Chat is hidden
+    
     const isLiveChatOn = document.getElementById('live-chat-toggle')?.checked ?? true;
     
-    if (!chatTab.classList.contains('active') && isLiveChatOn) {
-      document.getElementById('chat-badge').style.display = 'inline-block';
-    } else if (chatTab.classList.contains('active')) {
+    if (activeView !== 'live-chat' && isLiveChatOn) {
+      const badge = document.getElementById('chat-badge');
+      if (badge) badge.style.display = 'inline-block';
+    } else if (activeView === 'live-chat') {
       renderLiveChat(); // update sidebar
     }
 

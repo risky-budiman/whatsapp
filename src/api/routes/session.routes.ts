@@ -463,6 +463,46 @@ router.post('/:id/disconnect', async (req: Request, res: Response) => {
 
 /**
  * @swagger
+ * /api/sessions/{id}/sync:
+ *   post:
+ *     summary: Trigger contact sync for a specific session
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Sync triggered
+ */
+// POST /api/sessions/:id/sync — Trigger contact sync for a specific session
+router.post('/:id/sync', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const sm = getSessionManager();
+    const session = sm.getSession(id);
+
+    if (!session || session.info.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Sesi WhatsApp tidak aktif atau tidak ditemukan.' });
+    }
+
+    logger.info(`🔄 Manual Sync Triggered for session: ${id}`);
+    
+    // Trigger sync in background
+    sm.syncSession(id).catch(err => {
+      logger.error(`Error manually syncing session ${id}: ${err.message}`);
+    });
+
+    res.json({ success: true, message: 'Sinkronisasi sedang diproses di latar belakang.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/sessions/sync-all-contacts:
  *   post:
  *     summary: Trigger contact sync from all active sessions
@@ -485,48 +525,9 @@ router.post('/sync-all-contacts', async (req: Request, res: Response) => {
 
     // Fetch contacts from active clients without restarting!
     for (const session of allSessions) {
-      try {
-        const sessionData = sm.getSession(session.id);
-        if (sessionData && sessionData.client) {
-          const contacts = await sessionData.client.getContacts();
-          const validContacts = contacts.filter((c: any) => 
-            c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
-          );
-
-          const chats = await sessionData.client.getChats();
-          const groups = chats.filter((c: any) => c.isGroup);
-          
-          const allSync = [
-            ...validContacts.map((c: any) => ({
-              id: c.id._serialized,
-              name: c.name || c.pushname || c.id.user,
-              phone: c.id.user,
-            })),
-            ...groups.map((c: any) => ({
-              id: c.id._serialized,
-              name: c.name || c.id.user,
-              phone: c.id.user,
-            }))
-          ];
-
-          sm.emit('contacts.received', { sessionId: session.id, contacts: allSync });
-          logger.info(`✅ [SYNC] Berhasil menarik ulang ${validContacts.length} kontak secara manual.`);
-
-          // ALSO Pull History for Live Chat
-          logger.info(`🔄 [SYNC] Menarik riwayat pesan terbaru (Live Chat)...`);
-          let allMessages: any[] = [];
-          const recentChats = chats.slice(0, 20); 
-          for (const chat of recentChats) {
-            try {
-              const msgs = await chat.fetchMessages({ limit: 15 });
-              allMessages.push(...msgs);
-            } catch (e) {}
-          }
-          sm.emit('history.received', { sessionId: session.id, messages: allMessages });
-        }
-      } catch (err) {
-        logger.error(`Error pulling contacts/history for session ${session.id}: ${err}`);
-      }
+      sm.syncSession(session.id).catch(err => 
+        logger.error(`Error pulling contacts/history for session ${session.id}: ${err}`)
+      );
     }
     
     res.json({ success: true, message: 'Sinkronisasi berhasil ditarik tanpa restart.' });

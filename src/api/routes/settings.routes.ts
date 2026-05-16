@@ -33,9 +33,20 @@ router.get('/', (req: Request, res: Response) => {
   res.json({
     success: true,
     data: {
-      liveChatEnabled: settingsService.isLiveChatEnabled()
+      liveChatEnabled: settingsService.isLiveChatEnabled(),
+      apiKey: settingsService.getApiKey()
     }
   });
+});
+
+// POST /api/settings/regenerate-api-key
+router.post('/regenerate-api-key', async (req: Request, res: Response) => {
+  try {
+    const newKey = await settingsService.regenerateApiKey();
+    res.json({ success: true, message: 'API Key regenerated', data: { apiKey: newKey } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // POST /api/settings

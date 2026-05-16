@@ -191,26 +191,7 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * @swagger
- * /api/contacts/sync-laravel:
- *   post:
- *     summary: Sync contacts from Laravel database
- *     tags: [Contacts]
- *     responses:
- *       200:
- *         description: Sync completed
- */
-// POST /api/contacts/sync-laravel — Sync from Laravel DB
-router.post('/sync-laravel', async (_req: Request, res: Response) => {
-  try {
-    const syncer = getContactSync();
-    const result = await syncer.syncFromLaravel();
-    res.json({ success: true, data: result, message: 'Laravel sync completed' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+
 
 /**
  * @swagger
