@@ -123,19 +123,9 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/login.html'));
 });
 
-// Middleware to check session for the main dashboard
-app.get('/', (req, res, next) => {
-  const sid = req.cookies?.wa_sid;
-  
-  // Debug log
-  logger.info(`🔍 [GET] / | SID: ${sid ? 'Found' : 'NOT FOUND'}`);
-
-  // Note: We only redirect if NO cookie AND no token in query (for the very first load)
-  // The frontend will handle the localStorage check later
-  if (!sid && !req.query.token) {
-    return res.redirect('/login');
-  }
-  next();
+// Middleware to check session for the main dashboard (Client-side handled)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Diagnostic route
