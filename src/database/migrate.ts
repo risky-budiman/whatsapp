@@ -6,6 +6,8 @@
 import { env, validateEnv } from '../config/env';
 import { getDb, closeDb } from '../config/database';
 import { logger } from '../utils/logger';
+import { hashPassword } from '../utils/crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 const TABLES = [
   {
@@ -255,6 +257,24 @@ async function migrate() {
     } catch (e: any) {
       if (e.code === 'ER_DUP_FIELDNAME') logger.info('  ℹ️  Column "is_enabled" already exists in wa_sessions');
       else logger.error(`  ❌ Failed to add is_enabled column: ${e.message}`);
+    }
+
+    // 5. Create default admin user if no users exist
+    try {
+      const [users]: any = await db.query("SELECT COUNT(*) as count FROM wa_users");
+      if (users[0].count === 0) {
+        const adminId = uuidv4();
+        const hashedPassword = hashPassword('admin123');
+        await db.query(
+          "INSERT INTO wa_users (id, username, password, role) VALUES (?, ?, ?, ?)",
+          [adminId, 'admin', hashedPassword, 'admin']
+        );
+        console.log('  👤 Default Admin user created (admin / admin123)');
+      } else {
+        console.log('  ℹ️  Users already exist, skipping default user creation');
+      }
+    } catch (e: any) {
+      logger.error(`  ❌ Failed to create default user: ${e.message}`);
     }
 
   console.log('\n🎉 Migration complete!');
