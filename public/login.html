@@ -119,8 +119,12 @@
         const data = await res.json();
 
         if (data.success) {
-          localStorage.setItem('wa_token', data.token);
-          window.location.href = '/?token=' + data.token;
+          try {
+            localStorage.setItem('wa_token', data.token);
+          } catch(e) {
+            console.warn('LocalStorage is disabled, relying on URL token and cookies');
+          }
+          window.location.href = '/?token=' + data.token + '&v=' + Date.now();
         } else {
           errorBox.innerText = data.message || 'Login gagal';
           errorBox.style.display = 'block';

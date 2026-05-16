@@ -664,11 +664,17 @@
     const API_BASE = '/api';
     let CURRENT_API_KEY = 'dev-wa-gateway-key-2026';
 
+    // In-memory token fallback if localStorage fails
+    let MEMORY_TOKEN = null;
+
     // Handle token from URL (Login Fallback)
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('token');
     if (urlToken) {
-      localStorage.setItem('wa_token', urlToken);
+      MEMORY_TOKEN = urlToken;
+      try {
+        localStorage.setItem('wa_token', urlToken);
+      } catch(e) {}
       // Clean URL
       window.history.replaceState({}, document.title, "/");
     }
@@ -677,7 +683,10 @@
       async fetch(endpoint, options = {}) {
         try {
           const method = options.method || 'GET';
-          const token = localStorage.getItem('wa_token');
+          let token = MEMORY_TOKEN;
+          if (!token) {
+             try { token = localStorage.getItem('wa_token'); } catch(e) {}
+          }
           console.log(`🚀 API Call: ${endpoint} | Token: ${token ? 'Present' : 'None'}`);
           
           const fetchOptions = {
@@ -685,7 +694,7 @@
             headers: {
               'Content-Type': 'application/json',
               'X-API-Key': CURRENT_API_KEY,
-              'X-Auth-Token': token, 
+              ...(token ? {'X-Auth-Token': token} : {}), 
               ...(options.headers || {})
             }
           };

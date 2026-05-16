@@ -129,11 +129,13 @@ app.use('/api', (req, res) => {
 
 // Login Gate for Static Files
 app.get('/login', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.sendFile(path.join(__dirname, '../public/login.html'));
 });
 
 // Middleware to check session for the main dashboard (Client-side handled)
 app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
