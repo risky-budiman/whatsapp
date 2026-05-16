@@ -39,10 +39,10 @@ router.post('/login', async (req: Request, res: Response) => {
     const sid = generateToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    await db.query('INSERT INTO wa_web_sessions (sid, user_id, expires_at) VALUES (?, ?, ?)', [
+    // Create session using DB time to avoid sync issues
+    await db.query('INSERT INTO wa_web_sessions (sid, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [
       sid,
-      user.id,
-      expiresAt
+      user.id
     ]);
 
     // Set cookie - TOTAL RELAXATION for debug
