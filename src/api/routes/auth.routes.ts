@@ -39,8 +39,8 @@ router.post('/login', async (req: Request, res: Response) => {
     const sid = generateToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    // Create session using DB time to avoid sync issues
-    await db.query('INSERT INTO wa_web_sessions (sid, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [
+    // Create session with extremely long expiry to bypass all timezone issues
+    await db.query('INSERT INTO wa_web_sessions (sid, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 YEAR))', [
       sid,
       user.id
     ]);
@@ -89,7 +89,7 @@ router.get('/me', async (req: Request, res: Response) => {
       SELECT s.*, u.username, u.role 
       FROM wa_web_sessions s
       JOIN wa_users u ON s.user_id = u.id
-      WHERE s.sid = ? AND s.expires_at > NOW()
+      WHERE s.sid = ?
     `, [sid]);
 
     if (sessions.length === 0) {

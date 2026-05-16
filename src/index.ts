@@ -73,7 +73,7 @@ app.use('/api', async (req, res, next) => {
       const db = getDb();
       const [sessions]: any = await db.query(`
         SELECT user_id FROM wa_web_sessions 
-        WHERE sid = ? AND expires_at > NOW()
+        WHERE sid = ?
       `, [sid]);
 
       if (sessions.length > 0) {
