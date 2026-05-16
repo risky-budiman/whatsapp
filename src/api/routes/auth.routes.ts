@@ -80,7 +80,10 @@ router.get('/me', async (req: Request, res: Response) => {
   const queryToken = req.query.token;
   const sid = (req.cookies?.wa_sid || queryToken || (Array.isArray(headerToken) ? headerToken[0] : headerToken)) as string;
 
+  console.log(`[AUTH DEBUG] /me called. Header: ${headerToken}, Query: ${queryToken}, Final SID: ${sid}`);
+
   if (!sid) {
+    console.log('[AUTH DEBUG] No SID found, returning 401');
     return res.status(401).json({ success: false, message: 'Not authenticated' });
   }
 
@@ -93,10 +96,14 @@ router.get('/me', async (req: Request, res: Response) => {
       WHERE s.sid = ?
     `, [sid]);
 
+    console.log(`[AUTH DEBUG] DB Query returned ${sessions.length} sessions for SID: ${sid}`);
+
     if (sessions.length === 0) {
+      console.log('[AUTH DEBUG] Session not found in DB, returning 401');
       return res.status(401).json({ success: false, message: 'Session expired or invalid' });
     }
 
+    console.log(`[AUTH DEBUG] Session valid for user: ${sessions[0].username}`);
     const session = sessions[0];
     res.json({
       success: true,

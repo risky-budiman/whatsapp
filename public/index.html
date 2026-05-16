@@ -713,7 +713,8 @@
           console.warn("⚠️ Unauthorized! Waiting for token sync before redirect...");
           // Wait 800ms then redirect, to avoid race conditions with localStorage
           setTimeout(() => {
-            if (!localStorage.getItem('wa_token')) {
+            const hasToken = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token');
+            if (!hasToken) {
               window.location.href = '/login';
             } else {
                console.log("✅ Token found during delay, avoiding redirect.");

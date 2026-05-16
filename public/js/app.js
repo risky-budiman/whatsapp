@@ -108,9 +108,13 @@ async function checkAuth() {
   } catch (e) {
     console.error("Auth check failed", e);
     // If wa_api.fetch didn't already redirect, we might want to do it here
-    // but only after a delay
     setTimeout(() => {
-       if (!localStorage.getItem('wa_token')) window.location.href = '/login';
+       const hasToken = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token');
+       if (!hasToken) {
+         window.location.href = '/login';
+       } else {
+         console.warn("Token exists in memory/storage, but auth failed. Not redirecting to prevent loops. Check server logs.");
+       }
     }, 1000);
   }
 }
