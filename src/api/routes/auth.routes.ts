@@ -45,11 +45,12 @@ router.post('/login', async (req: Request, res: Response) => {
       expiresAt
     ]);
 
-    // Set cookie
+    // Set cookie - Adjusted for HTTP compatibility
     res.cookie('wa_sid', sid, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false, // Forced false for HTTP support
       sameSite: 'lax',
+      path: '/',
       expires: expiresAt
     });
 
