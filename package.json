@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "migrate": "ts-node src/database/migrate.ts",
+    "seed": "ts-node src/database/seed.ts",
     "check-db": "ts-node scratch/check_db.ts"
   },
   "dependencies": {
