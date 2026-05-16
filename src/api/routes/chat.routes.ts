@@ -119,75 +119,6 @@ router.get('/', async (_req: Request, res: Response) => {
 
 /**
  * @swagger
- * /api/chats/{phone}:
- *   get:
- *     summary: Get chat history for a specific phone/JID
- *     tags: [Chats]
- *     parameters:
- *       - in: path
- *         name: phone
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: List of messages
- */
-// GET /api/chats/:phone — Get chat history
-router.get('/:phone', async (req: Request, res: Response) => {
-  try {
-    const phone = req.params.phone as string;
-    const db = getDb();
-    
-    // We must match any form of the phone (raw, @s.whatsapp.net, @c.us, @lid)
-    const cleanParam = phone.replace('@c.us', '').replace('@lid', '');
-    
-    const [rows] = await db.query(`
-      SELECT c.*, COALESCE(wjm.phone_number, REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '')) as display_phone 
-      FROM wa_chats c
-      LEFT JOIN wa_jid_mappings wjm ON wjm.jid = c.phone_number
-      WHERE c.phone_number LIKE ? 
-      ORDER BY c.created_at ASC 
-      LIMIT 200
-    `, [`${cleanParam}%`]);
-    res.json({ success: true, data: rows });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-/**
- * @swagger
- * /api/chats/{phone}:
- *   post:
- *     summary: Send a manual reply
- *     tags: [Chats]
- *     parameters:
- *       - in: path
- *         name: phone
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - message
- *             properties:
- *               message:
- *                 type: string
- *               sessionId:
- *                 type: string
- *                 description: ID perangkat (Opsional). Jika dikosongkan, sistem akan otomatis memilih perangkat dengan beban pengiriman terendah (Rotation).
- *     responses:
- *       200:
- *         description: Pesan berhasil dikirim (Sent/Queued)
- */
-/**
- * @swagger
  * /api/chats/send-message:
  *   get:
  *     summary: Send message via GET (for external alerts)
@@ -233,7 +164,7 @@ router.get('/send-message', async (req: Request, res: Response) => {
     let finalSessionId = sessionId as string;
 
     // If no sessionId, pick the first active session
-    if (!finalSessionId || finalSessionId === 'auto') {
+    if (!finalSessionId || finalSessionId === 'auto' || finalSessionId === 'string') {
       const [sessions]: any = await db.query('SELECT id FROM wa_sessions WHERE status = "active" LIMIT 1');
       if (sessions.length === 0) {
         return res.status(400).json({ success: false, message: 'No active WhatsApp session found' });
@@ -278,6 +209,77 @@ router.get('/send-message', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/chats/{phone}:
+ *   get:
+ *     summary: Get chat history for a specific phone/JID
+ *     tags: [Chats]
+ *     parameters:
+ *       - in: path
+ *         name: phone
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of messages
+ */
+// GET /api/chats/:phone — Get chat history
+router.get('/:phone', async (req: Request, res: Response) => {
+  try {
+    const phone = req.params.phone as string;
+    const db = getDb();
+    
+    // We must match any form of the phone (raw, @s.whatsapp.net, @c.us, @lid)
+    const cleanParam = phone.replace('@c.us', '').replace('@lid', '');
+    
+    const [rows] = await db.query(`
+      SELECT c.*, COALESCE(wjm.phone_number, REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '')) as display_phone 
+      FROM wa_chats c
+      LEFT JOIN wa_jid_mappings wjm ON wjm.jid = c.phone_number
+      WHERE c.phone_number LIKE ? 
+      ORDER BY c.created_at ASC 
+      LIMIT 200
+    `, [`${cleanParam}%`]);
+    res.json({ success: true, data: rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+
+/**
+ * @swagger
+ * /api/chats/{phone}:
+ *   post:
+ *     summary: Send a manual reply
+ *     tags: [Chats]
+ *     parameters:
+ *       - in: path
+ *         name: phone
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               message:
+ *                 type: string
+ *               sessionId:
+ *                 type: string
+ *                 description: ID perangkat (Opsional). Jika dikosongkan, sistem akan otomatis memilih perangkat dengan beban pengiriman terendah (Rotation).
+ *     responses:
+ *       200:
+ *         description: Pesan berhasil dikirim (Sent/Queued)
+ */
 // POST /api/chats/:phone — Send manual reply
 router.post('/:phone', async (req: Request, res: Response) => {
   const phone = req.params.phone as string;
@@ -285,7 +287,7 @@ router.post('/:phone', async (req: Request, res: Response) => {
   
   try {
     const sm = getSessionManager();
-    const finalSessionId = (sessionId && sessionId !== 'auto') ? sessionId : sm.getBestSession()?.id;
+    const finalSessionId = (sessionId && sessionId !== 'auto' && sessionId !== 'string') ? sessionId : sm.getBestSession()?.id;
 
     if (!finalSessionId) {
       return res.status(400).json({ 

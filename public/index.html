@@ -784,7 +784,8 @@
         start: (id) => wa_api.fetch(`/campaigns/${id}/start`, { method: 'POST' }),
         pause: (id) => wa_api.fetch(`/campaigns/${id}/pause`, { method: 'POST' }),
         resume: (id) => wa_api.fetch(`/campaigns/${id}/resume`, { method: 'POST' }),
-        resendFailed: (id) => wa_api.fetch(`/campaigns/${id}/resend-failed`, { method: 'POST' })
+        resendFailed: (id) => wa_api.fetch(`/campaigns/${id}/resend-failed`, { method: 'POST' }),
+        delete: (id) => wa_api.fetch(`/campaigns/${id}`, { method: 'DELETE' })
       }
     };
 

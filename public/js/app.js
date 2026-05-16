@@ -1125,6 +1125,10 @@ async function renderCampaigns() {
                   <i class="fa-solid fa-rotate-right"></i>
                 </button>` 
               : ''}
+            
+            <button class="btn btn-outline" style="color: var(--danger); border-color: rgba(239, 68, 68, 0.2);" onclick="deleteCampaign('${c.id}')" title="Hapus Campaign">
+              <i class="fa-solid fa-trash"></i>
+            </button>
           </div>
         </div>
     `}).join('');
@@ -1135,6 +1139,18 @@ async function renderCampaigns() {
         <p>Gagal memuat campaign: ${err.message}</p>
       </div>
     </div>`;
+  }
+}
+
+async function deleteCampaign(id) {
+  const confirmed = await showConfirm('Apakah Anda yakin ingin menghapus campaign ini beserta semua riwayat pesannya? Tindakan ini tidak dapat dibatalkan.', 'Hapus Campaign', 'danger');
+  if (!confirmed) return;
+  try {
+    await wa_api.campaigns.delete(id);
+    renderCampaigns();
+    showToast("Campaign berhasil dihapus!", "success");
+  } catch (err) {
+    showToast("Gagal menghapus campaign: " + err.message, "error");
   }
 }
 

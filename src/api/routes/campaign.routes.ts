@@ -339,4 +339,45 @@ router.get('/:id/progress', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/campaigns/{id}:
+ *   delete:
+ *     summary: Delete a campaign
+ *     tags: [Campaigns]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Campaign deleted successfully
+ */
+// DELETE /api/campaigns/:id — Delete campaign
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const db = getDb();
+    
+    // Check if campaign exists
+    const [campaigns]: any = await db.query('SELECT * FROM wa_campaigns WHERE id = ?', [id]);
+    if (campaigns.length === 0) {
+      return res.status(404).json({ success: false, message: 'Campaign not found' });
+    }
+    
+    // Delete associated messages first
+    await db.query('DELETE FROM wa_campaign_messages WHERE campaign_id = ?', [id]);
+    
+    // Delete campaign
+    await db.query('DELETE FROM wa_campaigns WHERE id = ?', [id]);
+    
+    res.json({ success: true, message: 'Campaign deleted successfully' });
+  } catch (err: any) {
+    logger.error(`Error deleting campaign: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to delete campaign' });
+  }
+});
+
 export default router;
