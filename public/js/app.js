@@ -65,48 +65,46 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+
+
 async function checkAuth() {
   try {
-    const res = await fetch('/api/auth/me');
-    if (res.status === 401) {
-      window.location.href = '/login';
-    } else {
-      const data = await res.json();
-      const isAdmin = data.user && data.user.role === 'admin';
-      IS_ADMIN = isAdmin; // Set global flag
-      
-      const navUsers = document.getElementById('nav-users');
-      const navProfile = document.getElementById('nav-profile');
-      const navApi = document.getElementById('nav-api');
-      const navDocs = document.getElementById('nav-docs');
-      const btnAddSession = document.getElementById('btn-add-session');
-      const btnHardReset = document.getElementById('btn-hard-reset');
-      const adminOnlyCards = document.querySelectorAll('.admin-only');
-      
-      if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
-      if (navProfile) navProfile.style.display = isAdmin ? 'none' : 'block';
-      if (navApi) navApi.style.display = isAdmin ? 'block' : 'none';
-      if (navDocs) navDocs.style.display = isAdmin ? 'block' : 'none';
-      if (btnAddSession) btnAddSession.style.display = isAdmin ? 'inline-flex' : 'none';
-      if (btnHardReset) btnHardReset.style.display = isAdmin ? 'inline-flex' : 'none';
-      
-      // Update User Identity Display
-      const profileInfo = document.getElementById('user-profile-info');
-      const displayName = document.getElementById('user-display-name');
-      const displayRole = document.getElementById('user-display-role');
-      const userInitial = document.getElementById('user-initial');
-      
-      if (profileInfo && data.user) {
-        profileInfo.style.display = 'block';
-        displayName.innerText = data.user.username;
-        displayRole.innerText = data.user.role === 'admin' ? 'Administrator' : 'Staff Member';
-        userInitial.innerText = data.user.username.charAt(0).toUpperCase();
-      }
-
-      adminOnlyCards.forEach(card => {
-        card.style.display = isAdmin ? 'flex' : 'none';
-      });
+    const res = await wa_api.fetch('/auth/me');
+    const data = res; 
+    const isAdmin = data.user && data.user.role === 'admin';
+    IS_ADMIN = isAdmin; 
+    
+    const navUsers = document.getElementById('nav-users');
+    const navProfile = document.getElementById('nav-profile');
+    const navApi = document.getElementById('nav-api');
+    const navDocs = document.getElementById('nav-docs');
+    const btnAddSession = document.getElementById('btn-add-session');
+    const btnHardReset = document.getElementById('btn-hard-reset');
+    const adminOnlyCards = document.querySelectorAll('.admin-only');
+    
+    if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
+    if (navProfile) navProfile.style.display = isAdmin ? 'none' : 'block';
+    if (navApi) navApi.style.display = isAdmin ? 'block' : 'none';
+    if (navDocs) navDocs.style.display = isAdmin ? 'block' : 'none';
+    if (btnAddSession) btnAddSession.style.display = isAdmin ? 'inline-flex' : 'none';
+    if (btnHardReset) btnHardReset.style.display = isAdmin ? 'inline-flex' : 'none';
+    
+    // Update User Identity Display
+    const profileInfo = document.getElementById('user-profile-info');
+    const displayName = document.getElementById('user-display-name');
+    const displayRole = document.getElementById('user-display-role');
+    const userInitial = document.getElementById('user-initial');
+    
+    if (profileInfo && data.user) {
+      profileInfo.style.display = 'block';
+      displayName.innerText = data.user.username;
+      displayRole.innerText = data.user.role === 'admin' ? 'Administrator' : 'Staff Member';
+      userInitial.innerText = data.user.username.charAt(0).toUpperCase();
     }
+
+    adminOnlyCards.forEach(card => {
+      card.style.display = isAdmin ? 'flex' : 'none';
+    });
   } catch (e) {
     console.error("Auth check failed", e);
   }

@@ -664,15 +664,28 @@
     const API_BASE = '/api';
     let CURRENT_API_KEY = 'dev-wa-gateway-key-2026';
 
+    // Handle token from URL (Login Fallback)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    if (urlToken) {
+      localStorage.setItem('wa_token', urlToken);
+      // Clean URL
+      window.history.replaceState({}, document.title, "/");
+    }
+
     const wa_api = {
       async fetch(endpoint, options = {}) {
         try {
           const method = options.method || 'GET';
+          // Get token from localStorage
+          const token = localStorage.getItem('wa_token');
+          
           const fetchOptions = {
             method,
             headers: {
               'Content-Type': 'application/json',
               'X-API-Key': CURRENT_API_KEY,
+              'X-Auth-Token': token, // LocalStorage Fallback
               ...(options.headers || {})
             }
           };

@@ -63,8 +63,8 @@ app.use('/api', async (req, res, next) => {
   // 1. Skip for Public Auth Routes (already handled)
   if (req.path.startsWith('/auth/')) return next();
 
-  // 2. Try Web Session First (Best for UI)
-  const sid = req.cookies?.wa_sid;
+  // 2. Try Web Session OR Header Token (Best for UI & Reliability)
+  const sid = req.cookies?.wa_sid || req.headers['x-auth-token'];
   if (sid) {
     try {
       const db = getDb();
@@ -130,7 +130,9 @@ app.get('/', (req, res, next) => {
   // Debug log
   logger.info(`🔍 [GET] / | SID: ${sid ? 'Found' : 'NOT FOUND'}`);
 
-  if (!sid) {
+  // Note: We only redirect if NO cookie AND no token in query (for the very first load)
+  // The frontend will handle the localStorage check later
+  if (!sid && !req.query.token) {
     return res.redirect('/login');
   }
   next();
@@ -420,7 +422,6 @@ async function start() {
         }
       });
 
-      // 4. Listen for QR updates
       sm.on('qr.updated', (data: { sessionId: string; qr: string }) => {
         emitChatEvent({
           type: 'qr',

@@ -119,7 +119,8 @@
         const data = await res.json();
 
         if (data.success) {
-          window.location.href = '/';
+          localStorage.setItem('wa_token', data.token);
+          window.location.href = '/?token=' + data.token;
         } else {
           errorBox.innerText = data.message || 'Login gagal';
           errorBox.style.display = 'block';

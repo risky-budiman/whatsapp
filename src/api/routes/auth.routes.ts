@@ -55,6 +55,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      token: sid, // Return token for localStorage fallback
       user: {
         id: user.id,
         username: user.username,
