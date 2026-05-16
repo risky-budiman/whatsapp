@@ -107,6 +107,11 @@ async function checkAuth() {
     });
   } catch (e) {
     console.error("Auth check failed", e);
+    // If wa_api.fetch didn't already redirect, we might want to do it here
+    // but only after a delay
+    setTimeout(() => {
+       if (!localStorage.getItem('wa_token')) window.location.href = '/login';
+    }, 1000);
   }
 }
 

@@ -696,7 +696,15 @@
         const response = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
 
         if (response.status === 401 && !endpoint.includes('/auth/login')) {
-          window.location.href = '/login';
+          console.warn("⚠️ Unauthorized! Waiting for token sync before redirect...");
+          // Wait 800ms then redirect, to avoid race conditions with localStorage
+          setTimeout(() => {
+            if (!localStorage.getItem('wa_token')) {
+              window.location.href = '/login';
+            } else {
+               console.log("✅ Token found during delay, avoiding redirect.");
+            }
+          }, 800);
           return;
         }
         
