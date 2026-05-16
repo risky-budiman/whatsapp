@@ -123,8 +123,16 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/login.html'));
 });
 
+// Middleware to check session for the main dashboard
 app.get('/', (req, res, next) => {
-  if (!req.cookies.wa_sid) return res.redirect('/login');
+  const sid = req.cookies?.wa_sid;
+  
+  // Debug log (penting untuk melihat apakah cookie terkirim)
+  logger.info(`🔍 [GET] / | SID: ${sid ? 'Found' : 'NOT FOUND'}`);
+
+  if (!sid) {
+    return res.redirect('/login');
+  }
   next();
 });
 

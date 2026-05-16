@@ -45,13 +45,13 @@ router.post('/login', async (req: Request, res: Response) => {
       expiresAt
     ]);
 
-    // Set cookie - Adjusted for HTTP compatibility
+    // Set cookie - Adjusted for maximum compatibility on HTTP/IP
     res.cookie('wa_sid', sid, {
       httpOnly: true,
-      secure: false, // Forced false for HTTP support
+      secure: false, 
       sameSite: 'lax',
       path: '/',
-      expires: expiresAt
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
 
     res.json({
