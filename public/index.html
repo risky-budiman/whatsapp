@@ -11,49 +11,83 @@
 
 <body>
 
+  <!-- Toggle Sidebar Button for Mobile -->
+  <button id="sidebar-toggle" class="sidebar-toggle-btn">
+    <i class="fa-solid fa-bars"></i>
+  </button>
+
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="logo">
-        <i class="fa-brands fa-whatsapp"></i>
-        <span>WA Gateway</span>
+      <div class="logo" style="width: 100%; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <i class="fa-brands fa-whatsapp"></i>
+          <span>WA Gateway</span>
+        </div>
+        <button id="sidebar-close"
+          style="display: none; background: none; border: none; color: var(--text-muted); font-size: 1.25rem; cursor: pointer; padding: 5px;"
+          class="sidebar-close-btn">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
       </div>
       <!-- User Identity Display -->
-      <div id="user-profile-info" style="padding: 15px; margin-top: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; display: none;">
+      <div id="user-profile-info"
+        style="padding: 15px; margin-top: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; display: none;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 35px; height: 35px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white;" id="user-initial">?</div>
+          <div
+            style="width: 35px; height: 35px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white;"
+            id="user-initial">?</div>
           <div style="flex: 1; overflow: hidden;">
-            <div id="user-display-name" style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">User</div>
-            <div id="user-display-role" style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Role</div>
+            <div id="user-display-name"
+              style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              User</div>
+            <div id="user-display-role" style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">
+              Role</div>
           </div>
         </div>
       </div>
     </div>
     <ul class="nav-menu">
-      <li><a href="#" class="nav-link active" data-view="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <li>
+        <div class="nav-link active" data-view="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</div>
       </li>
-      <li><a href="#" class="nav-link" data-view="sessions"><i class="fa-solid fa-qrcode"></i> WhatsApp Sessions</a>
+      <li>
+        <div class="nav-link" data-view="sessions"><i class="fa-solid fa-qrcode"></i> WhatsApp Sessions</div>
       </li>
-      <li><a href="#" class="nav-link" data-view="contacts"><i class="fa-solid fa-address-book"></i> Kontak & Grup</a></li>
-      <li><a href="#" class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</a>
+      <li>
+        <div class="nav-link" data-view="contacts"><i class="fa-solid fa-address-book"></i> Kontak & Grup</div>
       </li>
-      <li><a href="#" class="nav-link" data-view="logs"><i class="fa-solid fa-list-check"></i> Riwayat Pesan</a></li>
-      <li><a href="#" class="nav-link" data-view="users" id="nav-users" style="display: none;"><i class="fa-solid fa-users-gear"></i> Manajemen User</a></li>
-      <li><a href="#" class="nav-link" data-view="profile" id="nav-profile"><i class="fa-solid fa-user-pen"></i> Pengaturan Akun</a></li>
-      <li><a href="#" class="nav-link" data-view="api-settings" id="nav-api"><i class="fa-solid fa-key"></i> Integrasi API</a></li>
+      <li>
+        <div class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</div>
+      </li>
+      <li>
+        <div class="nav-link" data-view="logs"><i class="fa-solid fa-list-check"></i> Riwayat Pesan</div>
+      </li>
+      <li>
+        <div class="nav-link" data-view="users" id="nav-users" style="display: none;"><i
+            class="fa-solid fa-users-gear"></i> Manajemen User</div>
+      </li>
+      <li>
+        <div class="nav-link" data-view="profile" id="nav-profile"><i class="fa-solid fa-user-pen"></i>
+          Pengaturan Akun</div>
+      </li>
+      <li>
+        <div class="nav-link" data-view="api-settings" id="nav-api"><i class="fa-solid fa-key"></i> Integrasi
+          API</div>
+      </li>
       <li><a href="/api-docs" target="_blank" class="nav-link-static" id="nav-docs"><i class="fa-solid fa-book"></i> API
           Documentation</a></li>
       <li style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--glass-border);">
-        <a href="#" class="nav-link" onclick="logout()" style="color: var(--danger)">
+        <div class="nav-link" onclick="logout()" style="color: var(--danger)">
           <i class="fa-solid fa-right-from-bracket"></i> Keluar
-        </a>
+        </div>
       </li>
     </ul>
   </aside>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
-    
+
     <!-- VIEW: PROFILE -->
     <section id="view-profile" class="view-section">
       <div class="header">
@@ -61,7 +95,8 @@
       </div>
       <div class="card" style="max-width: 500px; margin: 0 auto; padding: 40px; background: var(--glass-bg);">
         <p style="color: var(--text-muted); margin-bottom: 25px; font-size: 0.9rem;">
-          Gunakan formulir ini untuk mengubah data login Anda. Password hanya akan berubah jika Anda mengisi kolom password baru.
+          Gunakan formulir ini untuk mengubah data login Anda. Password hanya akan berubah jika Anda mengisi kolom
+          password baru.
         </p>
         <form onsubmit="updateMyProfile(event)">
           <div class="form-group">
@@ -78,7 +113,7 @@
         </form>
       </div>
     </section>
-    
+
     <!-- VIEW: USERS -->
     <section id="view-users" class="view-section">
       <div class="header">
@@ -110,7 +145,6 @@
     <section id="view-dashboard" class="view-section active">
       <div class="header">
         <h1>Dashboard Ringkasan</h1>
-        <p class="text-muted">Pantau performa gateway dan aktivitas pengiriman Anda secara real-time</p>
       </div>
 
       <div class="stats-grid">
@@ -179,9 +213,13 @@
           <div style="flex: 1;">
             <div class="stat-title">Infrastructure</div>
             <div style="display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap;">
-              <span id="dash-db-status" class="status-badge" style="font-size: 0.65rem; padding: 2px 8px;">DB: ...</span>
-              <span id="dash-redis-status" class="status-badge" style="font-size: 0.65rem; padding: 2px 8px;">RD: ...</span>
-              <span id="dash-platform" class="status-badge" style="font-size: 0.65rem; padding: 2px 8px; background: rgba(255,255,255,0.05); color: var(--text-muted);">OS: ...</span>
+              <span id="dash-db-status" class="status-badge" style="font-size: 0.65rem; padding: 2px 8px;">DB:
+                ...</span>
+              <span id="dash-redis-status" class="status-badge" style="font-size: 0.65rem; padding: 2px 8px;">RD:
+                ...</span>
+              <span id="dash-platform" class="status-badge"
+                style="font-size: 0.65rem; padding: 2px 8px; background: rgba(255,255,255,0.05); color: var(--text-muted);">OS:
+                ...</span>
             </div>
           </div>
         </div>
@@ -216,7 +254,8 @@
       <div class="header">
         <h1>Sesi & Perangkat</h1>
         <div style="display: flex; gap: 10px;">
-          <button class="btn btn-primary" id="btn-add-session" onclick="openModal('modal-add-session')" style="display: none;">
+          <button class="btn btn-primary" id="btn-add-session" onclick="openModal('modal-add-session')"
+            style="display: none;">
             <i class="fa-solid fa-plus"></i> Tambah Nomor
           </button>
           <button class="btn btn-outline" onclick="openDirectMessageModal()">
@@ -384,13 +423,15 @@
           <h1>Live Chat (CS)</h1>
           <p class="text-muted">Balas pesan pelanggan secara instan tanpa antrean broadcast</p>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 10px 15px; border-radius: 12px; border: 1px solid var(--glass-border);">
+        <div
+          style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 10px 15px; border-radius: 12px; border: 1px solid var(--glass-border);">
           <span style="font-size: 0.85rem; font-weight: 500;">Status Live Chat:</span>
           <label class="switch-sm">
             <input type="checkbox" id="live-chat-toggle" onchange="toggleLiveChatStatus(this.checked)">
             <span class="slider-sm"></span>
           </label>
-          <span id="live-chat-status-text" style="font-size: 0.85rem; font-weight: 700; color: var(--danger); min-width: 30px;">OFF</span>
+          <span id="live-chat-status-text"
+            style="font-size: 0.85rem; font-weight: 700; color: var(--danger); min-width: 30px;">OFF</span>
         </div>
       </div>
 
@@ -438,6 +479,51 @@
       </div>
     </section>
 
+    <!-- VIEW: API SETTINGS -->
+    <section id="view-api-settings" class="view-section">
+      <div class="header">
+        <h1>Integrasi & API Key</h1>
+      </div>
+
+      <div class="card" style="max-width: 600px;">
+        <div style="margin-bottom: 25px;">
+          <h3 style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-shield-halved" style="color: var(--primary)"></i> Keamanan API
+          </h3>
+          <p class="text-muted" style="font-size: 0.85rem;">Jangan bagikan API Key ini kepada siapapun. Siapapun yang
+            memiliki kunci ini dapat mengirim pesan atas nama perangkat Anda.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Your API Key</label>
+          <div style="position: relative; display: flex; gap: 10px; align-items: center;">
+            <input type="password" id="api-key-input" class="form-control" readonly
+              style="font-family: monospace; letter-spacing: 2px;">
+            <button class="btn btn-outline" id="btn-toggle-api-key" title="Tampilkan/Sembunyikan">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+            <button class="btn btn-primary" onclick="copyApiKey()" title="Salin ke Clipboard">
+              <i class="fa-solid fa-copy"></i> Salin
+            </button>
+            <button class="btn btn-outline-warning" onclick="handleRegenerateKey()" title="Generate Kunci Baru">
+              <i class="fa-solid fa-arrows-rotate"></i> Regenerate
+            </button>
+          </div>
+        </div>
+
+        <div
+          style="margin-top: 30px; padding: 15px; background: rgba(59, 130, 246, 0.05); border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.1);">
+          <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--info);">Tips Integrasi Cepat</h4>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">Gunakan URL berikut untuk mengirim
+            pesan via GET:</p>
+          <code
+            style="font-size: 0.7rem; color: var(--text-muted); display: block; line-height: 1.5; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 5px; word-break: break-all;">
+              /api/chats/send-message?phone=0811223344&message=Halo&api_key=${API_KEY}
+            </code>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- MODALS -->
@@ -455,7 +541,8 @@
         <div class="form-group">
           <label>Limit Pesan Harian (Lampu Hijau: 200)</label>
           <input type="number" id="session-limit" class="form-control" value="200" min="1" max="5000" />
-          <small style="color:var(--text-muted); font-size: 0.7rem;">Sangat disarankan di bawah 200 untuk nomor baru agar terhindar dari pemblokiran.</small>
+          <small style="color:var(--text-muted); font-size: 0.7rem;">Sangat disarankan di bawah 200 untuk nomor baru
+            agar terhindar dari pemblokiran.</small>
         </div>
         <button type="submit" class="btn btn-primary" style="width: 100%">Buat & Generate QR</button>
       </form>
@@ -489,7 +576,8 @@
         <i class="fa-solid fa-circle-question"></i>
       </div>
       <h2 id="confirm-title" style="margin-bottom: 10px;">Konfirmasi</h2>
-      <p id="confirm-message" class="text-muted" style="margin-bottom: 25px;">Apakah Anda yakin ingin melakukan tindakan ini?</p>
+      <p id="confirm-message" class="text-muted" style="margin-bottom: 25px;">Apakah Anda yakin ingin melakukan tindakan
+        ini?</p>
       <div style="display: flex; gap: 12px; justify-content: center;">
         <button id="btn-confirm-cancel" class="btn btn-outline" style="flex: 1">Batal</button>
         <button id="btn-confirm-ok" class="btn btn-primary" style="flex: 1">Ya, Lanjutkan</button>
@@ -587,7 +675,8 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Kirim Pesan Personal</h2>
-        <button class="close-btn" onclick="closeModal('modal-direct-message')"><i class="fa-solid fa-xmark"></i></button>
+        <button class="close-btn" onclick="closeModal('modal-direct-message')"><i
+            class="fa-solid fa-xmark"></i></button>
       </div>
       <form onsubmit="sendDirectMessage(event)">
         <div class="form-group">
@@ -609,46 +698,7 @@
     </div>
   </div>
 
-    <!-- VIEW: API SETTINGS -->
-    <section id="view-api-settings" class="view-section">
-      <div class="header">
-        <h1>Integrasi & API Key</h1>
-        <p class="text-muted">Gunakan API Key ini untuk menghubungkan sistem alert atau monitoring Anda.</p>
-      </div>
 
-      <div class="card" style="max-width: 600px;">
-        <div style="margin-bottom: 25px;">
-          <h3 style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
-            <i class="fa-solid fa-shield-halved" style="color: var(--primary)"></i> Keamanan API
-          </h3>
-          <p class="text-muted" style="font-size: 0.85rem;">Jangan bagikan API Key ini kepada siapapun. Siapapun yang memiliki kunci ini dapat mengirim pesan atas nama perangkat Anda.</p>
-        </div>
-
-        <div class="form-group">
-          <label>Your API Key</label>
-          <div style="position: relative; display: flex; gap: 10px; align-items: center;">
-            <input type="password" id="api-key-input" class="form-control" readonly style="font-family: monospace; letter-spacing: 2px;">
-            <button class="btn btn-outline" id="btn-toggle-api-key" title="Tampilkan/Sembunyikan">
-              <i class="fa-solid fa-eye"></i>
-            </button>
-            <button class="btn btn-primary" onclick="copyApiKey()" title="Salin ke Clipboard">
-              <i class="fa-solid fa-copy"></i> Salin
-            </button>
-            <button class="btn btn-outline-warning" onclick="handleRegenerateKey()" title="Generate Kunci Baru">
-              <i class="fa-solid fa-arrows-rotate"></i> Regenerate
-            </button>
-          </div>
-        </div>
-
-        <div style="margin-top: 30px; padding: 15px; background: rgba(59, 130, 246, 0.05); border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.1);">
-          <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--info);">Tips Integrasi Cepat</h4>
-          <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">Gunakan URL berikut untuk mengirim pesan via GET:</p>
-          <code style="font-size: 0.7rem; color: var(--text-muted); display: block; line-height: 1.5; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 5px; word-break: break-all;">
-            /api/chats/send-message?phone=0811223344&message=Halo&api_key=${API_KEY}
-          </code>
-        </div>
-      </div>
-    </section>
 
   <!-- Sync Loading Overlay -->
   <div id="sync-overlay" class="sync-overlay" style="display: none;">
@@ -674,7 +724,7 @@
       MEMORY_TOKEN = urlToken;
       try {
         localStorage.setItem('wa_token', urlToken);
-      } catch(e) {}
+      } catch (e) { }
       // Clean URL
       window.history.replaceState({}, document.title, "/");
     }
@@ -685,16 +735,16 @@
           const method = options.method || 'GET';
           let token = MEMORY_TOKEN;
           if (!token) {
-             try { token = localStorage.getItem('wa_token'); } catch(e) {}
+            try { token = localStorage.getItem('wa_token'); } catch (e) { }
           }
           console.log(`🚀 API Call: ${endpoint} | Token: ${token ? 'Present' : 'None'}`);
-          
+
           const fetchOptions = {
             method,
             headers: {
               'Content-Type': 'application/json',
               'X-API-Key': CURRENT_API_KEY,
-              ...(token ? {'X-Auth-Token': token} : {}), 
+              ...(token ? { 'X-Auth-Token': token } : {}),
               ...(options.headers || {})
             }
           };
@@ -707,24 +757,24 @@
           if (method !== 'GET' && options.body) {
             fetchOptions.body = options.body;
           }
-        const response = await fetch(url, fetchOptions);
+          const response = await fetch(url, fetchOptions);
 
-        if (response.status === 401 && !endpoint.includes('/auth/login')) {
-          console.warn("⚠️ Unauthorized! Waiting for token sync before redirect...");
-          // Wait 800ms then redirect, to avoid race conditions with localStorage
-          setTimeout(() => {
-            const hasToken = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token');
-            if (!hasToken) {
-              window.location.href = '/login';
-            } else {
-               console.log("✅ Token found during delay, avoiding redirect.");
-            }
-          }, 800);
-          return;
-        }
-        
-        const data = await response.json().catch(() => ({ success: false, message: `Server error (${response.status})` }));
-          
+          if (response.status === 401 && !endpoint.includes('/auth/login')) {
+            console.warn("⚠️ Unauthorized! Waiting for token sync before redirect...");
+            // Wait 800ms then redirect, to avoid race conditions with localStorage
+            setTimeout(() => {
+              const hasToken = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token');
+              if (!hasToken) {
+                window.location.href = '/login';
+              } else {
+                console.log("✅ Token found during delay, avoiding redirect.");
+              }
+            }, 800);
+            return;
+          }
+
+          const data = await response.json().catch(() => ({ success: false, message: `Server error (${response.status})` }));
+
           if (!response.ok || (data.success === false)) {
             throw new Error(data.message || `API Error (${response.status})`);
           }
@@ -791,35 +841,35 @@
 
     // API UI Logic - Run after DOM is ready
     document.addEventListener('DOMContentLoaded', () => {
-        const apiKeyInput = document.getElementById('api-key-input');
-        if (apiKeyInput) {
-            apiKeyInput.value = CURRENT_API_KEY;
-        }
+      const apiKeyInput = document.getElementById('api-key-input');
+      if (apiKeyInput) {
+        apiKeyInput.value = CURRENT_API_KEY;
+      }
 
-        const btnToggle = document.getElementById('btn-toggle-api-key');
-        if (btnToggle) {
-            btnToggle.addEventListener('click', function() {
-                const input = document.getElementById('api-key-input');
-                const icon = this.querySelector('i');
-                if (input.type === 'password') {
-                    input.type = 'text';
-                    icon.classList.remove('fa-eye');
-                    icon.classList.add('fa-eye-slash');
-                } else {
-                    input.type = 'password';
-                    icon.classList.remove('fa-eye-slash');
-                    icon.classList.add('fa-eye');
-                }
-            });
-        }
+      const btnToggle = document.getElementById('btn-toggle-api-key');
+      if (btnToggle) {
+        btnToggle.addEventListener('click', function () {
+          const input = document.getElementById('api-key-input');
+          const icon = this.querySelector('i');
+          if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+          } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+          }
+        });
+      }
     });
 
     function copyApiKey() {
-        const input = document.getElementById('api-key-input');
-        if (!input) return;
-        input.select();
-        document.execCommand('copy');
-        alert('API Key disalin ke clipboard!');
+      const input = document.getElementById('api-key-input');
+      if (!input) return;
+      input.select();
+      document.execCommand('copy');
+      alert('API Key disalin ke clipboard!');
     }
 
     async function toggleLiveChatStatus(status) {
@@ -827,8 +877,8 @@
         await wa_api.settings.update({ liveChatEnabled: status });
         const text = document.getElementById('live-chat-status-text');
         if (text) {
-            text.innerText = status ? 'ON' : 'OFF';
-            text.style.color = status ? 'var(--success)' : 'var(--danger)';
+          text.innerText = status ? 'ON' : 'OFF';
+          text.style.color = status ? 'var(--success)' : 'var(--danger)';
         }
       } catch (err) {
         alert("Gagal mengubah status Live Chat: " + err.message);
@@ -893,6 +943,56 @@
       </form>
     </div>
   </div>
+
+  <!-- Mobile Sidebar Toggle Handler -->
+  <script>
+    (function () {
+      function initSidebarToggle() {
+        const toggleBtn = document.getElementById('sidebar-toggle');
+        const closeBtn = document.getElementById('sidebar-close');
+        const sidebar = document.querySelector('.sidebar');
+
+        function openSidebar(e) {
+          if (e) e.preventDefault();
+          if (sidebar) sidebar.classList.add('open');
+        }
+
+        function closeSidebar(e) {
+          if (e) e.preventDefault();
+          if (sidebar) sidebar.classList.remove('open');
+        }
+
+        if (toggleBtn && sidebar) {
+          // Bind both click and touchstart for instant mobile response
+          toggleBtn.addEventListener('click', openSidebar);
+          toggleBtn.addEventListener('touchstart', openSidebar, { passive: false });
+        }
+        if (closeBtn && sidebar) {
+          closeBtn.addEventListener('click', closeSidebar);
+          closeBtn.addEventListener('touchstart', closeSidebar, { passive: false });
+        }
+
+        // Close sidebar when clicking any navigation link on mobile
+        const navLinks = document.querySelectorAll('.nav-menu .nav-link, .nav-menu .nav-link-static');
+        navLinks.forEach(link => {
+          function handleLinkClick() {
+            if (window.innerWidth <= 992 && sidebar) {
+              sidebar.classList.remove('open');
+            }
+          }
+          link.addEventListener('click', handleLinkClick);
+          link.addEventListener('touchstart', handleLinkClick, { passive: true });
+        });
+      }
+
+      // Prevent race conditions with DOMContentLoaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSidebarToggle);
+      } else {
+        initSidebarToggle();
+      }
+    })();
+  </script>
 </body>
 
 </html>

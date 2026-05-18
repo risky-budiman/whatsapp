@@ -48,6 +48,8 @@ body {
   flex-direction: column;
   padding: 0; /* Changed to handle header/menu separately */
   z-index: 100;
+  height: 100vh;
+  overflow-y: auto; /* Enable vertical scrollbar inside sidebar */
 }
 
 .sidebar-header {
@@ -1239,4 +1241,119 @@ input:checked + .slider-small:before { transform: translateX(14px); }
   display: flex;
   gap: 8px;
   margin-top: auto;
+}
+
+/* ─── TOGGLE SIDEBAR BUTTON (MOBILE) ─── */
+.sidebar-toggle-btn {
+  display: none;
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  width: 44px;
+  height: 44px;
+  background: var(--bg-panel);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--text-main);
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  cursor: pointer;
+  z-index: 10001; /* Very high z-index to stay on top of main content */
+  pointer-events: auto; /* Ensure it is clickable */
+  box-shadow: var(--glass-shadow);
+  transition: var(--transition);
+}
+
+.sidebar-toggle-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* ─── RESPONSIVE DESIGN ─── */
+@media (max-width: 992px) {
+  .sidebar-toggle-btn {
+    display: flex;
+  }
+  
+  .sidebar {
+    position: fixed;
+    left: -260px; /* Hidden offscreen on left */
+    top: 0;
+    bottom: 0;
+    height: 100vh;
+    width: 260px;
+    z-index: 10002; /* Higher than toggle button to overlay it when opened */
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+    border-right: 1px solid var(--glass-border);
+  }
+  
+  .sidebar.open {
+    left: 0; /* Slide in */
+  }
+  
+  .sidebar-header {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 15px;
+  }
+
+  .sidebar-close-btn {
+    display: block !important;
+  }
+
+  .nav-menu {
+    flex-direction: column;
+    padding: 10px 16px;
+    overflow-y: visible;
+  }
+
+  .nav-link, .nav-link-static {
+    padding: 12px 16px;
+    white-space: normal;
+    font-size: 0.95rem;
+  }
+
+  .main-content {
+    padding: 80px 20px 30px; /* Space on top for toggle button */
+    overflow-y: auto;
+    width: 100%;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .header > div, .header > button, .header > input {
+    width: 100%;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-container {
+    flex-direction: column;
+    height: 600px;
+  }
+
+  .chat-sidebar {
+    width: 100%;
+    height: 150px;
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .modal {
+    padding: 20px;
+    margin: 10px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
 }
