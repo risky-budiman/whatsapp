@@ -245,7 +245,7 @@ Baca dan balas pesan WhatsApp secara real-time.
 | `DELETE` | `/api/chats/log/:id` | Hapus satu log pesan |
 | `DELETE` | `/api/chats/history/:phone` | Hapus seluruh riwayat chat kontak |
 
-### Kirim Balasan
+### Kirim Balasan (Satu Nomor)
 
 ```bash
 POST /api/chats/6281234567890@c.us
@@ -261,6 +261,35 @@ POST /api/chats/6281234567890@c.us
 |-------|:-----:|-----------|
 | `message` | ✅ | Teks pesan yang akan dikirim |
 | `sessionId` | ❌ | ID sesi pengirim. `"auto"` atau kosongkan untuk rotasi otomatis |
+
+### Kirim Broadcast Massal (Banyak Nomor)
+
+Gunakan endpoint baru ini untuk mengirim pesan ke banyak nomor atau grup secara bersamaan (Bulk Send) tanpa membuat Campaign.
+
+```bash
+POST /api/chats/send-message
+```
+```json
+{
+  "phones": ["62812345678", "62898765432-162812@g.us"],
+  "message": "Pengumuman server maintenance besok pagi.",
+  "sessionId": "auto"
+}
+```
+Atau menggunakan *comma-separated string*:
+```json
+{
+  "phone": "62812345678, 62898765432-162812@g.us",
+  "message": "Pengumuman server maintenance besok pagi."
+}
+```
+
+| Field | Wajib | Deskripsi |
+|-------|:-----:|-----------|
+| `phones` | ✅ | Array daftar nomor tujuan (Mendukung ID Grup) |
+| `phone` | ✅ | (Alternatif) String nomor tujuan dipisahkan koma |
+| `message` | ✅ | Teks pesan yang akan dikirim |
+| `sessionId` | ❌ | ID sesi pengirim (Rotasi otomatis) |
 
 ### Kirim Pesan via GET (untuk External Alert)
 

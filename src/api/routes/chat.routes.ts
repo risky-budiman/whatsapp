@@ -29,30 +29,43 @@ export function emitChatEvent(data: any) {
 
 /**
  * @swagger
- * /api/chats:
+ * /api/chats/logs:
  *   get:
- *     summary: Get recent conversations
+ *     summary: Get all message logs
  *     tags: [Chats]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Number of records to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *         description: Pagination offset
  *     responses:
  *       200:
- *         description: List of latest conversations
+ *         description: List of message logs with contact names
  */
 // GET /api/chats/logs — List all message logs
 router.get('/logs', async (req: Request, res: Response) => {
   try {
     const db = getDb();
-    
-    // Auto-fix schema for status enum if needed
-    await db.query(`
-      ALTER TABLE wa_message_logs 
-      MODIFY COLUMN status ENUM('sent','failed','received','delivered','read') DEFAULT 'sent'
-    `).catch(() => {});
 
     const limit = parseInt((req.query.limit as string) || '50', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
 
     const [rows]: any = await db.query(
-      `SELECT l.id, l.target_phone, l.message_content, l.status, l.created_at, l.session_id, s.name as session_name
+      `SELECT 
+         l.id, 
+         l.target_phone, 
+         l.message_content, 
+         l.status, 
+         l.created_at, 
+         l.session_id, 
+         s.name as session_name,
+         (SELECT wc.name FROM wa_contacts wc WHERE wc.phone_number = l.target_phone OR wc.phone_number = CONCAT(l.target_phone, '@c.us') OR wc.phone_number = CONCAT(l.target_phone, '@g.us') LIMIT 1) as contact_name
        FROM wa_message_logs l
        LEFT JOIN wa_sessions s ON l.session_id = s.id
        ORDER BY l.created_at DESC 
@@ -80,6 +93,16 @@ router.get('/logs', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/chats:
+ *   get:
+ *     summary: Get recent conversations
+ *     tags: [Chats]
+ *     responses:
+ *       200:
+ *         description: List of latest conversations
+ */
 // GET /api/chats — Get recent conversations
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -150,6 +173,40 @@ router.get('/', async (_req: Request, res: Response) => {
  *     responses:
  *       200:
  *         description: Message sent successfully
+ *   post:
+ *     summary: Send message via POST (Supports multiple numbers)
+ *     tags: [Chats]
+ *     parameters:
+ *       - in: query
+ *         name: api_key
+ *         schema:
+ *           type: string
+ *         description: Your API Key (Optional if logged in or using x-api-key header)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: Target phone number (e.g. "628123...") or multiple numbers separated by comma
+ *               phones:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of target phone numbers
+ *               message:
+ *                 type: string
+ *               sessionId:
+ *                 type: string
+ *                 description: Session ID (Optional, defaults to best active session/Rotation)
+ *     responses:
+ *       200:
+ *         description: Message(s) processed
  */
 // GET /api/chats/send-message — Simplified endpoint for external alerts/monitoring
 router.get('/send-message', async (req: Request, res: Response) => {
@@ -162,17 +219,16 @@ router.get('/send-message', async (req: Request, res: Response) => {
 
     const db = getDb();
     let finalSessionId = sessionId as string;
+    const sm = getSessionManager();
 
-    // If no sessionId, pick the first active session
+    // If no sessionId, pick the best active session (least load)
     if (!finalSessionId || finalSessionId === 'auto' || finalSessionId === 'string') {
-      const [sessions]: any = await db.query('SELECT id FROM wa_sessions WHERE status = "active" LIMIT 1');
-      if (sessions.length === 0) {
+      finalSessionId = sm.getBestSession()?.id as string;
+      if (!finalSessionId) {
         return res.status(400).json({ success: false, message: 'No active WhatsApp session found' });
       }
-      finalSessionId = sessions[0].id;
     }
 
-    const sm = getSessionManager();
     const session = sm.getSession(finalSessionId);
     if (!session || session.info.status !== 'active') {
       return res.status(400).json({ success: false, message: 'Session not found or not initialized' });
@@ -198,6 +254,18 @@ router.get('/send-message', async (req: Request, res: Response) => {
       logger.error(`[GET_SEND_ERROR] Database log error: ${logErr.message}`);
     }
 
+    // Emit to Live Chat UI (SSE)
+    emitChatEvent({
+      type: 'message',
+      id: chatId,
+      session_id: finalSessionId,
+      phone_number: phone,
+      message_text: message,
+      is_from_me: true,
+      status: 'sent',
+      created_at: new Date()
+    });
+
     res.json({
       success: true,
       message: 'Message sent successfully via GET',
@@ -205,6 +273,88 @@ router.get('/send-message', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     logger.error(`GET /send-message error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/chats/send-message — Send message via POST (Supports multiple numbers)
+router.post('/send-message', async (req: Request, res: Response) => {
+  try {
+    const { phone, phones, message, sessionId } = req.body;
+
+    let targetPhones: string[] = [];
+    if (phones && Array.isArray(phones)) {
+      targetPhones = phones;
+    } else if (phone && typeof phone === 'string') {
+      targetPhones = phone.split(',').map(p => p.trim()).filter(p => p);
+    }
+
+    if (targetPhones.length === 0 || !message) {
+      return res.status(400).json({ success: false, message: 'Missing phone/phones array or message in body' });
+    }
+
+    const sm = getSessionManager();
+    let finalSessionId = sessionId as string;
+
+    // Auto-select best session if not provided
+    if (!finalSessionId || finalSessionId === 'auto' || finalSessionId === 'string') {
+      finalSessionId = sm.getBestSession()?.id as string;
+      if (!finalSessionId) {
+        return res.status(400).json({ success: false, message: 'No active WhatsApp session found' });
+      }
+    }
+
+    const session = sm.getSession(finalSessionId);
+    if (!session || session.info.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Session not found or not initialized' });
+    }
+
+    const db = getDb();
+    const results = [];
+
+    for (const p of targetPhones) {
+      try {
+        const targetJid = toWhatsAppJid(p);
+        const result = await sm.sendMessage(finalSessionId, targetJid, message);
+        const waMessageId = result?.id?._serialized || result?.id?.id || null;
+
+        const chatId = uuidv4();
+        await db.query(`
+          INSERT INTO wa_chats (id, session_id, phone_number, message_id, message_text, is_from_me, status)
+          VALUES (?, ?, ?, ?, ?, true, 'sent')
+        `, [chatId, finalSessionId, p, waMessageId, message]);
+
+        try {
+          await db.query(`
+            INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status, metadata)
+            VALUES (?, ?, ?, ?, 'outgoing', 'sent', ?)
+          `, [uuidv4(), finalSessionId, p, message, JSON.stringify({ waMessageId })]);
+        } catch (logErr: any) {}
+
+        emitChatEvent({
+          type: 'message',
+          id: chatId,
+          session_id: finalSessionId,
+          phone_number: p,
+          message_text: message,
+          is_from_me: true,
+          status: 'sent',
+          created_at: new Date()
+        });
+
+        results.push({ phone: p, success: true, messageId: waMessageId });
+      } catch (err: any) {
+        results.push({ phone: p, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Processed sending to ${targetPhones.length} numbers`,
+      data: { sessionId: finalSessionId, results }
+    });
+  } catch (err: any) {
+    logger.error(`POST /send-message error: ${err.message}`);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -232,7 +382,7 @@ router.get('/:phone', async (req: Request, res: Response) => {
     const db = getDb();
     
     // We must match any form of the phone (raw, @s.whatsapp.net, @c.us, @lid)
-    const cleanParam = phone.replace('@c.us', '').replace('@lid', '');
+    const cleanParam = phone.replace('@c.us', '').replace('@lid', '').replace('@s.whatsapp.net', '');
     
     const [rows] = await db.query(`
       SELECT c.*, COALESCE(wjm.phone_number, REPLACE(REPLACE(c.phone_number, '@c.us', ''), '@lid', '')) as display_phone 

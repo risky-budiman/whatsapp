@@ -30,6 +30,16 @@ export function isValidPhone(phone: string): boolean {
  * Format phone for WhatsApp JID
  */
 export function toWhatsAppJid(phone: string): string {
+  // If already formatted with whatsapp domain, return as is
+  if (phone.endsWith('@c.us') || phone.endsWith('@g.us') || phone.endsWith('@lid')) {
+    return phone;
+  }
+
+  // Detect group ID (often contains a dash and no @ yet)
+  if (phone.includes('-') && !phone.includes('@')) {
+    return `${phone}@g.us`;
+  }
+
   const normalized = normalizePhone(phone);
   return `${normalized}@c.us`;
 }

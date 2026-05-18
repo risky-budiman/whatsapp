@@ -281,6 +281,14 @@ async function start() {
         // 6. Enforce unique index on contacts
         await db.query("ALTER TABLE wa_contacts ADD UNIQUE INDEX IF NOT EXISTS idx_phone_unique (phone_number)").catch(() => {});
         logger.info('✅ Contact list integrity ensured.');
+
+        // 7. Fix enum status schema for wa_message_logs
+        await db.query(`
+          ALTER TABLE wa_message_logs 
+          MODIFY COLUMN status ENUM('sent','failed','received','delivered','read') DEFAULT 'sent'
+        `).catch(() => {});
+        logger.info('✅ Message logs schema ensured.');
+
       } catch (err: any) {
         logger.warn(`⚠️ Background cleanup note: ${err.message}`);
       }

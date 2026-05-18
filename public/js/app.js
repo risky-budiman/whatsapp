@@ -317,11 +317,12 @@ async function renderMessageLogs() {
       }
 
       const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
+      const displayTo = l.contact_name ? `${l.contact_name} (${phone})` : phone;
 
       return `
         <tr>
           <td>${logOffset + index + 1}</td>
-          <td>${phone}</td>
+          <td>${displayTo}</td>
           <td class="cell-message" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content || ''}</td>
           <td><span class="badge secondary" style="font-size: 0.7rem; font-weight: 600;">${l.session_name || 'System'}</span></td>
           <td style="font-size: 0.8rem;">${time}</td>
@@ -475,10 +476,11 @@ async function renderDashboard() {
         const time = new Date(l.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         const statusClass = l.status || 'sent';
         const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
+        const displayTo = l.contact_name ? `${l.contact_name} (${phone})` : phone;
         
         return `
           <tr>
-            <td>${phone}</td>
+            <td>${displayTo}</td>
             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content}</td>
             <td>${time}</td>
             <td><span class="status-badge ${statusClass}">${l.status.toUpperCase()}</span></td>

@@ -113,18 +113,26 @@ router.post('/', async (req: Request, res: Response) => {
 
     logger.info(`[DEBUG] Attempting to save manual contact: Phone=${phone}, JID=${jid}, Name=${name}`);
 
-    // Upsert contact
-    const [result] = await db.query(
-      `INSERT INTO wa_contacts (id, phone_number, name, tags, source) 
-       VALUES (?, ?, ?, ?, 'manual')
-       ON DUPLICATE KEY UPDATE 
-         name = VALUES(name), 
-         tags = VALUES(tags),
-         source = 'manual'`,
-      [uuidv4(), jid, name || null, tags ? JSON.stringify(tags) : null]
-    );
+    const [existing]: any = await db.query('SELECT id FROM wa_contacts WHERE phone_number = ? LIMIT 1', [jid]);
 
-    logger.info(`[DEBUG] Save result: ${JSON.stringify(result)}`);
+    if (existing.length > 0) {
+      // Edit existing
+      await db.query(
+        `UPDATE wa_contacts 
+         SET name = ?, tags = ?, source = 'manual'
+         WHERE phone_number = ?`,
+        [name || null, tags ? JSON.stringify(tags) : null, jid]
+      );
+    } else {
+      // Insert new
+      await db.query(
+        `INSERT INTO wa_contacts (id, phone_number, name, tags, source) 
+         VALUES (?, ?, ?, ?, 'manual')`,
+        [uuidv4(), jid, name || null, tags ? JSON.stringify(tags) : null]
+      );
+    }
+
+    logger.info(`[DEBUG] Contact saved successfully`);
 
     res.json({ success: true, message: 'Contact saved successfully' });
   } catch (err: any) {

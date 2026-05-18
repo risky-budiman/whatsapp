@@ -322,7 +322,13 @@ export class SessionManager extends EventEmitter {
   }
 
   getAllSessions(): SessionInfo[] {
-    return Array.from(this.sessions.values()).map(s => s.info);
+    const today = new Date();
+    return Array.from(this.sessions.values()).map(s => {
+      if (s.info.lastSentAt && !this.isSameDay(s.info.lastSentAt, today)) {
+        s.info.dailySentCount = 0;
+      }
+      return s.info;
+    });
   }
 
   async getAllSessionsFromDb(): Promise<any[]> {
@@ -410,11 +416,18 @@ export class SessionManager extends EventEmitter {
   }
 
   getBestSession(): SessionInfo | null {
+    const today = new Date();
     const activeSessions = Array.from(this.sessions.values())
-      .filter(s => s.info.status === 'active' && s.info.dailySentCount < s.info.dailyLimit)
-      .sort((a, b) => a.info.dailySentCount - b.info.dailySentCount);
+      .map(s => {
+        if (s.info.lastSentAt && !this.isSameDay(s.info.lastSentAt, today)) {
+          s.info.dailySentCount = 0;
+        }
+        return s.info;
+      })
+      .filter(info => info.status === 'active' && info.dailySentCount < info.dailyLimit)
+      .sort((a, b) => a.dailySentCount - b.dailySentCount);
 
-    return activeSessions.length > 0 ? activeSessions[0].info : null;
+    return activeSessions.length > 0 ? activeSessions[0] : null;
   }
 
   async updateSession(sessionId: string, data: { name?: string; dailyLimit?: number }): Promise<void> {
@@ -509,7 +522,11 @@ export class SessionManager extends EventEmitter {
     if (!active || active.info.status !== 'active') return;
     
     try {
-      const chat = await active.client.getChatById(chatId);
+      let resolvedChatId = chatId;
+      if (!resolvedChatId.includes('@')) {
+        resolvedChatId = `${resolvedChatId}@c.us`;
+      }
+      const chat = await active.client.getChatById(resolvedChatId);
       if (chat) {
         await chat.sendSeen();
       }
