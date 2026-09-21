@@ -56,11 +56,14 @@ router.get('/', async (_req: Request, res: Response) => {
     // Merge live status into DB records
     const merged = dbSessions.map((dbRow: any) => {
       const live = liveSessions.find((s) => s.id === dbRow.id);
+      const currentStatus = live?.status || dbRow.status;
+      const isActive = currentStatus === 'active';
       return {
         id: dbRow.id,
         name: dbRow.name,
-        phone_number: live?.phoneNumber || dbRow.phone_number,
-        status: live?.status || dbRow.status,
+        // Only provide phone_number if session is truly active
+        phone_number: isActive ? (live?.phoneNumber || dbRow.phone_number) : null,
+        status: currentStatus,
         is_enabled: dbRow.is_enabled === 1,
         daily_sent_count: live?.dailySentCount ?? dbRow.daily_sent_count,
         daily_limit: dbRow.daily_limit,
