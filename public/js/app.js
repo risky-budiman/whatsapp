@@ -742,19 +742,21 @@ async function openQrModal(id) {
   if (qrEventSource) qrEventSource.close();
 
   try {
-    // 1. Trigger connection on backend
-    await wa_api.sessions.connect(id);
-
-    // 2. Start polling fallback immediately (in case SSE is buffered by Nginx)
-    checkQrFallback(id, container, msg);
-    qrPollInterval = setInterval(() => {
-      checkQrFallback(id, container, msg);
-    }, 2000);
-
-    // 3. Start SSE
+    // 1. Start SSE immediately so we catch the very first QR event
     const token = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token') || '';
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     qrEventSource = new EventSource(`/api/sessions/${id}/qr${tokenParam}`);
+
+    // 2. Trigger connection on backend asynchronously (do NOT block SSE/polling)
+    wa_api.sessions.connect(id).catch(err => {
+      console.warn("Connect request note:", err.message);
+    });
+
+    // 3. Fast polling fallback (starts at 500ms, then every 1.5s)
+    setTimeout(() => checkQrFallback(id, container, msg), 500);
+    qrPollInterval = setInterval(() => {
+      checkQrFallback(id, container, msg);
+    }, 1500);
     
     qrEventSource.onmessage = (event) => {
       try {

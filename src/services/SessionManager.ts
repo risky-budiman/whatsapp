@@ -19,6 +19,7 @@ import { logger } from '../utils/logger';
 import QRCode from 'qrcode';
 
 const AUTH_DIR = path.join(process.cwd(), 'wa_auth');
+let cachedBaileysVersion: [number, number, number] | null = null;
 
 export interface SessionInfo {
   id: string;
@@ -105,7 +106,18 @@ export class SessionManager extends EventEmitter {
       }
 
       const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-      const { version } = await fetchLatestBaileysVersion();
+
+      // Cache version to avoid repeating external HTTP network calls on every connect
+      let version = cachedBaileysVersion;
+      if (!version) {
+        try {
+          const fetched = await fetchLatestBaileysVersion();
+          version = fetched.version;
+          cachedBaileysVersion = version;
+        } catch (e) {
+          version = [2, 3000, 1015901307]; // Safe Baileys web version fallback
+        }
+      }
 
       const db = getDb();
       const [rows]: any = await db.query(
@@ -139,11 +151,13 @@ export class SessionManager extends EventEmitter {
         auth: state,
         logger: pino({ level: 'silent' }) as any,
         printQRInTerminal: false,
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
-        generateHighQualityLinkPreview: true,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 25000,
+        generateHighQualityLinkPreview: false,
+        connectTimeoutMs: 30000,
+        keepAliveIntervalMs: 20000,
+        defaultQueryTimeoutMs: 30000,
+        markOnlineOnConnect: false,
       });
 
       const activeSession: ActiveSession = {
