@@ -700,20 +700,23 @@ async function saveSessionEdit(e) {
   }
 }
 
-let qrPollInterval = null;
+let lastRenderedQr = null;
 
 async function checkQrFallback(id, container, msg) {
   try {
     const res = await wa_api.fetch(`/sessions/${id}/qr-image`);
     if (res && res.success && res.qr) {
-      const now = new Date().toLocaleTimeString();
-      if (container) container.innerHTML = `
-        <img src="${res.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
-        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
-          <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
-        </div>
-      `;
-      if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+      if (res.qr !== lastRenderedQr) {
+        lastRenderedQr = res.qr;
+        const now = new Date().toLocaleTimeString();
+        if (container) container.innerHTML = `
+          <img src="${res.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+            <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
+          </div>
+        `;
+        if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+      }
     } else if (res && res.status === 'active') {
       if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
         <i class="fa-solid fa-circle-check fa-3x" style="margin-bottom:15px"></i>
@@ -740,6 +743,7 @@ async function openQrModal(id) {
 
   if (qrPollInterval) clearInterval(qrPollInterval);
   if (qrEventSource) qrEventSource.close();
+  lastRenderedQr = null;
 
   try {
     // 1. Start SSE immediately so we catch the very first QR event
@@ -764,13 +768,16 @@ async function openQrModal(id) {
         const now = new Date().toLocaleTimeString();
         
         if (data.type === 'qr') {
-          if (container) container.innerHTML = `
-            <img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
-            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
-              <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
-            </div>
-          `;
-          if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+          if (data.qr !== lastRenderedQr) {
+            lastRenderedQr = data.qr;
+            if (container) container.innerHTML = `
+              <img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
+              <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+                <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
+              </div>
+            `;
+            if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+          }
         } else if (data.type === 'connected') {
           if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
             <i class="fa-solid fa-circle-check fa-3x" style="margin-bottom:15px"></i>
