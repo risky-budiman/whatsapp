@@ -751,16 +751,16 @@ async function openQrModal(id) {
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     qrEventSource = new EventSource(`/api/sessions/${id}/qr${tokenParam}`);
 
-    // 2. Trigger connection on backend asynchronously (do NOT block SSE/polling)
+    // 2. Fast immediate check + rapid initial polling (immediate 0ms, then every 800ms)
+    checkQrFallback(id, container, msg);
+    qrPollInterval = setInterval(() => {
+      checkQrFallback(id, container, msg);
+    }, 800);
+
+    // 3. Trigger connection on backend asynchronously (do NOT block SSE/polling)
     wa_api.sessions.connect(id).catch(err => {
       console.warn("Connect request note:", err.message);
     });
-
-    // 3. Fast polling fallback (starts at 500ms, then every 1.5s)
-    setTimeout(() => checkQrFallback(id, container, msg), 500);
-    qrPollInterval = setInterval(() => {
-      checkQrFallback(id, container, msg);
-    }, 1500);
     
     qrEventSource.onmessage = (event) => {
       try {
