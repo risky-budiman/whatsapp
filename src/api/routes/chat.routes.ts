@@ -55,6 +55,23 @@ router.get('/logs', async (req: Request, res: Response) => {
 
     const limit = parseInt((req.query.limit as string) || '50', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
+    const q = ((req.query.q as string) || '').trim();
+    const status = ((req.query.status as string) || 'all').trim();
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (status && status !== 'all') {
+      conditions.push('l.status = ?');
+      params.push(status);
+    }
+
+    if (q) {
+      conditions.push('(l.target_phone LIKE ? OR l.message_content LIKE ? OR s.name LIKE ?)');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const [rows]: any = await db.query(
       `SELECT 
@@ -62,20 +79,23 @@ router.get('/logs', async (req: Request, res: Response) => {
          l.target_phone, 
          l.message_content, 
          l.status, 
+         l.error,
+         l.metadata,
          l.created_at, 
          l.session_id, 
          s.name as session_name,
          (SELECT wc.name FROM wa_contacts wc WHERE wc.phone_number = l.target_phone OR wc.phone_number = CONCAT(l.target_phone, '@c.us') OR wc.phone_number = CONCAT(l.target_phone, '@g.us') LIMIT 1) as contact_name
        FROM wa_message_logs l
        LEFT JOIN wa_sessions s ON l.session_id = s.id
+       ${whereClause}
        ORDER BY l.created_at DESC 
        LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [...params, limit, offset]
     );
 
-    const [totalRows]: any = await db.query('SELECT COUNT(*) as count FROM wa_message_logs');
+    const countSql = `SELECT COUNT(*) as count FROM wa_message_logs l LEFT JOIN wa_sessions s ON l.session_id = s.id ${whereClause}`;
+    const [totalRows]: any = await db.query(countSql, params);
     const total = Number(totalRows[0]?.count || 0);
-    const [dbName]: any = await db.query('SELECT DATABASE() as db');
 
     res.json({
       success: true,
@@ -83,8 +103,7 @@ router.get('/logs', async (req: Request, res: Response) => {
       meta: {
         total,
         limit,
-        offset,
-        dbName: dbName[0]?.db || 'unknown'
+        offset
       }
     });
   } catch (err: any) {

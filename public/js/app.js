@@ -245,7 +245,10 @@ function loadView(viewId) {
     renderGroups();
   }
   if (viewId === 'campaigns') renderCampaigns();
-  if (viewId === 'logs') renderMessageLogs();
+  if (viewId === 'logs') {
+    logOffset = 0;
+    renderMessageLogs();
+  }
   if (viewId === 'users') renderUsers();
   if (viewId === 'profile') renderMyProfile();
   if (viewId === 'api-settings') {
@@ -290,36 +293,50 @@ async function handleRegenerateKey() {
 // ─── MESSAGE LOGS MANAGEMENT ───
 let logOffset = 0;
 const logLimit = 50;
+let cachedLogs = [];
+let logSearchTimeout = null;
 
 async function renderMessageLogs() {
   const tbody = document.getElementById('logs-tbody');
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat riwayat...</td></tr>`;
   
   try {
-    const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
+    const searchQuery = (document.getElementById('search-logs')?.value || '').trim();
+    const statusFilter = (document.getElementById('filter-log-status')?.value || 'all').trim();
+
+    const res = await wa_api.chats.getLogs({ 
+      limit: logLimit, 
+      offset: logOffset,
+      q: searchQuery,
+      status: statusFilter
+    });
     console.log('[DEBUG] Logs Response:', res);
-    const logs = res.data || [];
+    cachedLogs = res.data || [];
+    const logs = cachedLogs;
     const total = (res.meta && typeof res.meta.total !== 'undefined') ? res.meta.total : logs.length;
 
     if (logs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada riwayat pesan</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada riwayat pesan yang sesuai</td></tr>`;
+      document.getElementById('log-pagination-info').innerText = `Menampilkan 0 dari 0 pesan`;
+      document.getElementById('btn-prev-log').disabled = true;
+      document.getElementById('btn-next-log').disabled = true;
       return;
     }
 
     tbody.innerHTML = logs.map((l, index) => {
-      const time = l.created_at ? new Date(l.created_at).toLocaleString() : '-';
+      const time = l.created_at ? new Date(l.created_at).toLocaleString('id-ID') : '-';
       let statusHtml = '';
       
       if (l.status === 'sent') {
-        statusHtml = `<span class="status-badge sent" style="background: rgba(16, 185, 129, 0.1); color: #10b981;"><i class="fa-solid fa-check"></i> SENT</span>`;
+        statusHtml = `<span class="status-badge sent" style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-weight: 600;"><i class="fa-solid fa-check"></i> SENT</span>`;
       } else if (l.status === 'delivered') {
-        statusHtml = `<span class="status-badge delivered" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;"><i class="fa-solid fa-check-double"></i> DELIVERED</span>`;
+        statusHtml = `<span class="status-badge delivered" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; font-weight: 600;"><i class="fa-solid fa-check-double"></i> DELIVERED</span>`;
       } else if (l.status === 'read') {
-        statusHtml = `<span class="status-badge read" style="background: rgba(52, 183, 241, 0.1); color: #34b7f1;"><i class="fa-solid fa-check-double"></i> READ</span>`;
+        statusHtml = `<span class="status-badge read" style="background: rgba(52, 183, 241, 0.1); color: #34b7f1; font-weight: 600;"><i class="fa-solid fa-check-double"></i> READ</span>`;
       } else if (l.status === 'failed') {
-        statusHtml = `<span class="status-badge failed" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> FAILED</span>`;
+        statusHtml = `<span class="status-badge failed" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-weight: 600;" title="${l.error || 'Pengiriman gagal'}"><i class="fa-solid fa-triangle-exclamation"></i> FAILED</span>`;
       } else {
-        statusHtml = `<span class="status-badge received">${l.status.toUpperCase()}</span>`;
+        statusHtml = `<span class="status-badge received">${(l.status || '').toUpperCase()}</span>`;
       }
 
       const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
@@ -328,18 +345,23 @@ async function renderMessageLogs() {
       return `
         <tr>
           <td>${logOffset + index + 1}</td>
-          <td>${displayTo}</td>
-          <td class="cell-message" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content || ''}</td>
+          <td><strong>${displayTo}</strong></td>
+          <td class="cell-message" style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;" onclick="openLogDetailModal('${l.id}')" title="Klik untuk lihat detail pesan">
+            ${l.message_content || '<span class="text-muted">[Kosong]</span>'}
+          </td>
           <td><span class="badge secondary" style="font-size: 0.7rem; font-weight: 600;">${l.session_name || 'System'}</span></td>
           <td style="font-size: 0.8rem;">${time}</td>
           <td>${statusHtml}</td>
           <td class="actions-cell">
-            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <button class="btn btn-sm btn-outline" onclick="openLogDetailModal('${l.id}')" title="Lihat Detail Pesan">
+                <i class="fa-solid fa-eye"></i> Detail
+              </button>
               ${l.status === 'failed' ? `
-              <button class="btn-icon" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
+              <button class="btn btn-sm btn-warning" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang Pesan Ini">
                 <i class="fa-solid fa-rotate"></i>
               </button>` : ''}
-              <button class="btn-icon danger" onclick="deleteMessageLog('${l.id}')" title="Hapus">
+              <button class="btn btn-sm btn-outline" style="color: var(--danger)" onclick="deleteMessageLog('${l.id}')" title="Hapus Riwayat">
                 <i class="fa-solid fa-trash"></i>
               </button>
             </div>
@@ -349,7 +371,9 @@ async function renderMessageLogs() {
     }).join('');
 
     // Update pagination UI
-    document.getElementById('log-pagination-info').innerText = `Menampilkan ${logOffset + 1} - ${Math.min(logOffset + logLimit, total)} dari ${total} pesan`;
+    const startNum = total === 0 ? 0 : logOffset + 1;
+    const endNum = Math.min(logOffset + logLimit, total);
+    document.getElementById('log-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} pesan`;
     document.getElementById('btn-prev-log').disabled = logOffset === 0;
     document.getElementById('btn-next-log').disabled = (logOffset + logLimit) >= total;
   } catch (err) {
@@ -357,10 +381,96 @@ async function renderMessageLogs() {
   }
 }
 
+function filterLogs() {
+  clearTimeout(logSearchTimeout);
+  logSearchTimeout = setTimeout(() => {
+    logOffset = 0;
+    renderMessageLogs();
+  }, 350);
+}
+
+function openLogDetailModal(logId) {
+  const log = cachedLogs.find(l => l.id === logId);
+  if (!log) {
+    showToast("Data log pesan tidak ditemukan", "error");
+    return;
+  }
+
+  const phone = log.target_phone ? log.target_phone.split('@')[0] : '';
+  const displayTo = log.contact_name ? `${log.contact_name} (${phone})` : (log.target_phone || '-');
+  const time = log.created_at ? new Date(log.created_at).toLocaleString('id-ID') : '-';
+
+  // Status HTML
+  let statusHtml = '';
+  if (log.status === 'sent') {
+    statusHtml = `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;"><i class="fa-solid fa-check"></i> SENT (Terkirim)</span>`;
+  } else if (log.status === 'delivered') {
+    statusHtml = `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; font-weight: 700;"><i class="fa-solid fa-check-double"></i> DELIVERED (Diterima)</span>`;
+  } else if (log.status === 'read') {
+    statusHtml = `<span class="badge" style="background: rgba(52, 183, 241, 0.15); color: #34b7f1; font-weight: 700;"><i class="fa-solid fa-check-double"></i> READ (Dibaca)</span>`;
+  } else if (log.status === 'failed') {
+    statusHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; font-weight: 700;"><i class="fa-solid fa-triangle-exclamation"></i> FAILED (Gagal)</span>`;
+  } else {
+    statusHtml = `<span class="badge">${(log.status || '').toUpperCase()}</span>`;
+  }
+
+  document.getElementById('detail-log-status').innerHTML = statusHtml;
+  document.getElementById('detail-log-time').innerText = time;
+  document.getElementById('detail-log-receiver').innerText = displayTo;
+  document.getElementById('detail-log-device').innerText = `${log.session_name || 'System'} ${log.session_id ? '(' + log.session_id + ')' : ''}`;
+  document.getElementById('detail-log-message').innerText = log.message_content || '[Tidak ada isi teks]';
+
+  // Error Info
+  const errorContainer = document.getElementById('detail-log-error-container');
+  const errorText = document.getElementById('detail-log-error');
+  if (log.error) {
+    errorText.innerText = log.error;
+    errorContainer.style.display = 'block';
+  } else if (log.status === 'failed') {
+    errorText.innerText = 'Pesan gagal dikirimkan oleh WhatsApp. Kemungkinan nomor tidak terdaftar di WhatsApp, sesi disconnect, atau rate limit.';
+    errorContainer.style.display = 'block';
+  } else {
+    errorContainer.style.display = 'none';
+  }
+
+  // Metadata Info
+  const metaContainer = document.getElementById('detail-log-meta-container');
+  const metaText = document.getElementById('detail-log-metadata');
+  if (log.metadata) {
+    try {
+      const metaObj = typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata;
+      metaText.innerText = JSON.stringify(metaObj, null, 2);
+      metaContainer.style.display = 'block';
+    } catch (e) {
+      metaText.innerText = String(log.metadata);
+      metaContainer.style.display = 'block';
+    }
+  } else {
+    metaContainer.style.display = 'none';
+  }
+
+  // Resend Button in Detail
+  const btnResend = document.getElementById('btn-detail-resend');
+  if (log.status === 'failed') {
+    btnResend.style.display = 'inline-flex';
+    btnResend.onclick = () => {
+      closeModal('modal-detail-log');
+      resendLogMessage(log.id);
+    };
+  } else {
+    btnResend.style.display = 'none';
+  }
+
+  openModal('modal-detail-log');
+}
+
 async function resendLogMessage(logId) {
   try {
-    const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
-    const log = res.data.find(l => l.id === logId);
+    let log = cachedLogs.find(l => l.id === logId);
+    if (!log) {
+      const res = await wa_api.chats.getLogs({ limit: logLimit, offset: logOffset });
+      log = (res.data || []).find(l => l.id === logId);
+    }
     
     if (!log) {
       showToast("Data pesan tidak ditemukan", "error");
@@ -380,7 +490,7 @@ async function resendLogMessage(logId) {
       })
     });
 
-    showToast("Pesan berhasil dikirim ulang!");
+    showToast("Pesan berhasil dikirim ulang!", "success");
     if (activeView === 'dashboard') renderDashboard();
     if (activeView === 'logs') renderMessageLogs();
   } catch (err) {
@@ -395,6 +505,7 @@ async function deleteMessageLog(id) {
     await wa_api.chats.deleteLog(id);
     if (activeView === 'dashboard') renderDashboard();
     if (activeView === 'logs') renderMessageLogs();
+    showToast("Riwayat pesan dihapus");
   } catch (err) {
     showToast("Gagal menghapus log: " + err.message, "error");
   }
