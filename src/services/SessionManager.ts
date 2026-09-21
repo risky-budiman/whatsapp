@@ -81,8 +81,8 @@ export class SessionManager extends EventEmitter {
 
   async connectSession(sessionId: string, name: string): Promise<SessionInfo> {
     const existing = this.sessions.get(sessionId);
-    if (existing && (existing.info.status === 'active' || existing.info.status === 'qr' || existing.info.status === 'connecting')) {
-      logger.info(`[${name}] Sesi sudah dalam proses atau aktif. Mengabaikan permintaan koneksi baru.`);
+    if (existing && existing.info.status === 'active') {
+      logger.info(`[${name}] Sesi sudah aktif. Mengabaikan permintaan koneksi baru.`);
       return existing.info;
     }
 
@@ -193,11 +193,18 @@ export class SessionManager extends EventEmitter {
             try {
               fs.rmSync(sessionFolder, { recursive: true, force: true });
             } catch (e) {}
+            await this.updateSessionDb(sessionId, { status: 'disconnected', phone_number: null });
           } else if (shouldReconnect) {
-            setTimeout(() => {
-              logger.info(`🔄 [${name}] Reconnecting session automatically...`);
-              this.connectSession(sessionId, name).catch(() => {});
-            }, 3000);
+            // Check if session is enabled in DB before auto-reconnecting
+            const dbCheck = getDb();
+            const [rowsCheck]: any = await dbCheck.query('SELECT status, is_enabled FROM wa_sessions WHERE id = ?', [sessionId]);
+            const isEnabled = rowsCheck[0]?.is_enabled !== 0;
+            if (isEnabled) {
+              setTimeout(() => {
+                logger.info(`🔄 [${name}] Reconnecting session automatically...`);
+                this.connectSession(sessionId, name).catch(() => {});
+              }, 3000);
+            }
           }
         } else if (connection === 'open') {
           const userJid = sock.user?.id ? sock.user.id.split(':')[0] + '@c.us' : '';
@@ -337,16 +344,29 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
+        try {
+          await active.client.logout();
+        } catch (e) {}
         active.client.ev.removeAllListeners('connection.update');
         active.client.ev.removeAllListeners('messages.upsert');
         active.client.ev.removeAllListeners('messages.update');
         active.client.ws.close();
       } catch (err: any) {}
       this.sessions.delete(sessionId);
-      const db = getDb();
-      await db.query('UPDATE wa_sessions SET status = "disconnected" WHERE id = ?', [sessionId]);
-      this.emit('status.update', { sessionId, status: 'disconnected' });
     }
+
+    // Clean up stored session credentials so another phone can link freshly
+    const sessionDir = path.join(AUTH_DIR, `baileys_${sessionId}`);
+    if (fs.existsSync(sessionDir)) {
+      try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      } catch (err: any) {}
+    }
+
+    const db = getDb();
+    await db.query('UPDATE wa_sessions SET status = "disconnected", phone_number = NULL WHERE id = ?', [sessionId]);
+    this.emit('status.update', { sessionId, status: 'disconnected' });
+    logger.info(`🔌 Sesi ${sessionId} diputuskan dan data kredensial dibersihkan untuk nomor baru.`);
   }
 
   async deleteSession(sessionId: string): Promise<void> {
