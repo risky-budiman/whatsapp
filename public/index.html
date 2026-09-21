@@ -55,7 +55,10 @@
         <div class="nav-link" data-view="sessions"><i class="fa-solid fa-qrcode"></i> WhatsApp Sessions</div>
       </li>
       <li>
-        <div class="nav-link" data-view="contacts"><i class="fa-solid fa-address-book"></i> Kontak & Grup</div>
+        <div class="nav-link" data-view="contacts"><i class="fa-solid fa-address-book"></i> Kontak Pribadi</div>
+      </li>
+      <li>
+        <div class="nav-link" data-view="groups"><i class="fa-solid fa-users"></i> Grup WhatsApp</div>
       </li>
       <li>
         <div class="nav-link" data-view="campaigns"><i class="fa-solid fa-bullhorn"></i> Broadcast Campaign</div>
@@ -276,9 +279,14 @@
     <section id="view-contacts" class="view-section">
       <div class="header">
         <h1>Manajemen Kontak</h1>
-        <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..."
-            onkeyup="filterContacts()" style="width: 250px; margin-bottom: 0;">
+            onkeyup="filterContacts()" style="width: 220px; margin-bottom: 0;">
+          <select id="filter-contact-type" class="form-control" onchange="filterContacts()" style="width: 140px; margin-bottom: 0;">
+            <option value="all">Semua Tipe</option>
+            <option value="personal">Personal</option>
+            <option value="group">Grup</option>
+          </select>
           <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
           </button>
@@ -802,7 +810,8 @@
         list: (params = {}) => {
           const limit = params.limit || 100;
           const offset = params.offset || 0;
-          return wa_api.fetch(`/contacts?limit=${limit}&offset=${offset}`);
+          const type = params.type || 'all';
+          return wa_api.fetch(`/contacts?limit=${limit}&offset=${offset}&type=${encodeURIComponent(type)}`);
         },
         listGroups: (params = {}) => {
           const limit = params.limit || 100;

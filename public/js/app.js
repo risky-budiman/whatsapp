@@ -891,21 +891,24 @@ const contactLimit = 25;
 
 async function renderContacts() {
   const tbody = document.getElementById('contacts-tbody');
-  tbody.innerHTML = `<tr><td colspan="6" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center">Loading...</td></tr>`;
   
   try {
-    const res = await wa_api.contacts.list({ limit: contactLimit, offset: contactOffset });
+    const typeSelect = document.getElementById('filter-contact-type');
+    const selectedType = typeSelect ? typeSelect.value : 'all';
+
+    const res = await wa_api.contacts.list({ limit: contactLimit, offset: contactOffset, type: selectedType });
     cachedContacts = res.data;
     const total = res.meta.total;
     
     displayContacts(cachedContacts);
     
     // Update pagination UI
-    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${contactOffset + 1} - ${Math.min(contactOffset + contactLimit, total)} dari ${total} kontak`;
+    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${contactOffset + 1} - ${Math.min(contactOffset + contactLimit, total)} dari ${total} data`;
     document.getElementById('btn-prev-contact').disabled = contactOffset === 0;
     document.getElementById('btn-next-contact').disabled = (contactOffset + contactLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -918,26 +921,33 @@ function changeContactPage(dir) {
 function displayContacts(contacts) {
   const tbody = document.getElementById('contacts-tbody');
   if (contacts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak atau Grup</td></tr>`;
     return;
   }
 
   tbody.innerHTML = contacts.map((c, index) => {
+    const isGroup = c.phone_number && c.phone_number.endsWith('@g.us');
     const displayName = c.name && c.name !== '' ? c.name : c.phone_number.split('@')[0];
     const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
     const tagHtml = tags.map(t => `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--info); font-size: 0.65rem; margin-right: 4px;">${t}</span>`).join('');
     
+    const typeBadge = isGroup ? `
+      <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: var(--primary); font-size: 0.72rem; font-weight: 600;">
+        <i class="fa-solid fa-users" style="margin-right: 4px;"></i> Grup
+      </span>
+    ` : `
+      <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); font-size: 0.72rem; font-weight: 600;">
+        <i class="fa-solid fa-user" style="margin-right: 4px;"></i> Personal
+      </span>
+    `;
+
     return `
       <tr>
         <td>${contactOffset + index + 1}</td>
         <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-name="${displayName}"></td>
         <td><strong>${displayName}</strong></td>
         <td>${c.phone_number.split('@')[0]}</td>
-        <td>
-          <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); font-size: 0.72rem; font-weight: 600;">
-            <i class="fa-solid fa-user" style="margin-right: 4px;"></i> Personal
-          </span>
-        </td>
+        <td>${typeBadge}</td>
         <td>${tagHtml || '-'}</td>
         <td><span class="badge" style="font-size:0.7rem">${c.source}</span></td>
         <td>
@@ -1016,11 +1026,20 @@ function handleCampaignTargetChange(val) {
 }
 
 function filterContacts() {
-  const query = document.getElementById('search-contacts').value.toLowerCase();
-  const filtered = cachedContacts.filter(c => 
-    (c.name && c.name.toLowerCase().includes(query)) || 
-    c.phone_number.includes(query)
-  );
+  const query = (document.getElementById('search-contacts')?.value || '').toLowerCase();
+  const typeSelect = document.getElementById('filter-contact-type');
+  const selectedType = typeSelect ? typeSelect.value : 'all';
+
+  const filtered = cachedContacts.filter(c => {
+    const isGroup = c.phone_number && c.phone_number.endsWith('@g.us');
+    if (selectedType === 'personal' && isGroup) return false;
+    if (selectedType === 'group' && !isGroup) return false;
+
+    return (
+      (c.name && c.name.toLowerCase().includes(query)) || 
+      c.phone_number.includes(query)
+    );
+  });
   displayContacts(filtered);
 }
 

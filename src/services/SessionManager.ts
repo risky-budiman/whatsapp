@@ -598,16 +598,46 @@ export class SessionManager extends EventEmitter {
       let groupsList: any[] = [];
       try {
         const participatingGroups = await client.groupFetchAllParticipating();
-        groupsList = Object.values(participatingGroups).map((g: any) => ({
+        groupsList = Object.values(participatingGroups || {}).map((g: any) => ({
           id: g.id, // e.g. 120363xxx@g.us
-          name: g.subject || g.id,
+          name: g.subject || g.name || g.id,
           phone: g.id, // retain full group JID with @g.us
           isGroup: true,
           type: 'group',
           participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
         }));
+        logger.info(`[SYNC] [${name}] groupFetchAllParticipating found ${groupsList.length} groups.`);
       } catch (e: any) {
-        logger.warn(`[SYNC] Failed to fetch groups: ${e.message}`);
+        logger.warn(`[SYNC] Failed to fetch groups via groupFetchAllParticipating: ${e.message}`);
+      }
+
+      // Fallback: If groupFetchAllParticipating returned 0 or failed, inspect active.chats and contacts for any @g.us
+      const knownGroupJids = new Set(groupsList.map((g) => g.id));
+      for (const [chatId, chat] of (active.chats || new Map()).entries()) {
+        if (chatId.endsWith('@g.us') && !knownGroupJids.has(chatId)) {
+          knownGroupJids.add(chatId);
+          groupsList.push({
+            id: chatId,
+            name: chat.name || chat.subject || `Grup ${chatId.split('@')[0]}`,
+            phone: chatId,
+            isGroup: true,
+            type: 'group',
+            participantsCount: 0,
+          });
+        }
+      }
+      for (const [contactId, c] of contacts.entries()) {
+        if (contactId.endsWith('@g.us') && !knownGroupJids.has(contactId)) {
+          knownGroupJids.add(contactId);
+          groupsList.push({
+            id: contactId,
+            name: c.name || c.notify || `Grup ${contactId.split('@')[0]}`,
+            phone: contactId,
+            isGroup: true,
+            type: 'group',
+            participantsCount: 0,
+          });
+        }
       }
 
       // Convert cached personal contacts

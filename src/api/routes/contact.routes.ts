@@ -35,19 +35,21 @@ const router = Router();
  *       200:
  *         description: List of contacts
  */
-// GET /api/contacts — List individual contacts (excluding groups) with resolved JIDs
+// GET /api/contacts — List contacts with optional type filtering (all, personal, group)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const limit = parseInt((req.query.limit as string) || '500', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
-    
-    // DEBUG: Check total counts
-    const [allCount]: any = await db.query("SELECT COUNT(*) as total FROM wa_contacts");
-    const [jidCount]: any = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@c.us'");
-    logger.info(`[DEBUG] Contacts Table: Total=${allCount[0].total}, JID_Format=${jidCount[0].total}`);
+    const type = (req.query.type as string) || 'all'; // 'all' | 'personal' | 'group'
 
-    // Let's be more lenient: show everything that isn't a group
+    let whereClause = '';
+    if (type === 'personal') {
+      whereClause = "WHERE wc.phone_number NOT LIKE '%@g.us'";
+    } else if (type === 'group') {
+      whereClause = "WHERE wc.phone_number LIKE '%@g.us'";
+    }
+
     const [rows] = await db.query(
       `SELECT 
         wc.id,
@@ -57,13 +59,14 @@ router.get('/', async (req: Request, res: Response) => {
         wc.source,
         wc.created_at
       FROM wa_contacts wc
-      WHERE wc.phone_number NOT LIKE '%@g.us'
+      ${whereClause}
       ORDER BY wc.created_at DESC 
       LIMIT ? OFFSET ?`,
       [limit, offset]
     );
 
-    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number NOT LIKE '%@g.us'");
+    const countSql = whereClause ? `SELECT COUNT(*) as total FROM wa_contacts wc ${whereClause}` : 'SELECT COUNT(*) as total FROM wa_contacts';
+    const [countRows] = await db.query(countSql);
     const total = (countRows as any[])[0].total;
 
     res.json({ success: true, data: rows, meta: { total, limit, offset } });
