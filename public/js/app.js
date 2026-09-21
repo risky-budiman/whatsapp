@@ -714,7 +714,9 @@ async function openQrModal(id) {
 
     // 2. Start SSE
     if (qrEventSource) qrEventSource.close();
-    qrEventSource = new EventSource(`/api/sessions/${id}/qr`);
+    const token = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token') || '';
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    qrEventSource = new EventSource(`/api/sessions/${id}/qr${tokenParam}`);
     
     qrEventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);

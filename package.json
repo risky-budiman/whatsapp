@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "bullmq": "^5.34.8",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -20,6 +21,7 @@
     "express": "^5.1.0",
     "ioredis": "^5.6.1",
     "mysql2": "^3.14.1",
+    "pino": "^10.3.1",
     "puppeteer": "^24.42.0",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.2.8",

@@ -1,4 +1,13 @@
-import { Client, LocalAuth, Message, Events } from 'whatsapp-web.js';
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  WASocket,
+  proto,
+  WAMessage,
+  Browsers
+} from '@whiskeysockets/baileys';
+import pino from 'pino';
 import { getAntiBanEngine } from './AntiBanEngine';
 import { settingsService } from './SettingsService';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,8 +32,10 @@ export interface SessionInfo {
 }
 
 interface ActiveSession {
-  client: Client;
+  client: WASocket;
   info: SessionInfo;
+  contacts: Map<string, { id: string; name: string; notify?: string }>;
+  chats: Map<string, any>;
 }
 
 export class SessionManager extends EventEmitter {
@@ -54,10 +65,10 @@ export class SessionManager extends EventEmitter {
   }
 
   async init(): Promise<void> {
-    logger.info('📱 SessionManager initializing with WhatsApp-Web.js...');
+    logger.info('📱 SessionManager initializing with Baileys (Super Lightweight WebSocket engine)...');
     const db = getDb();
     const [rows]: any = await db.query('SELECT * FROM wa_sessions WHERE status != "banned" AND is_enabled = 1');
-    
+
     for (const session of rows) {
       try {
         await this.connectSession(session.id, session.name);
@@ -69,62 +80,44 @@ export class SessionManager extends EventEmitter {
   }
 
   async connectSession(sessionId: string, name: string): Promise<SessionInfo> {
-    // 1. Jika sesi sudah ada dan aktif, jangan buat lagi
     const existing = this.sessions.get(sessionId);
     if (existing && (existing.info.status === 'active' || existing.info.status === 'qr' || existing.info.status === 'connecting')) {
       logger.info(`[${name}] Sesi sudah dalam proses atau aktif. Mengabaikan permintaan koneksi baru.`);
       return existing.info;
     }
-    
+
     try {
-      logger.info(`[DEBUG] Memulai WhatsApp-Web.js untuk: ${sessionId} (${name})`);
-      
-      // Cleanup existing if any (shouldn't happen with the check above, but for safety)
+      logger.info(`[DEBUG] Memulai Baileys socket untuk: ${sessionId} (${name})`);
+
       if (existing) {
-        try { await existing.client.destroy(); } catch (e) {}
+        try {
+          existing.client.ev.removeAllListeners('connection.update');
+          existing.client.ev.removeAllListeners('messages.upsert');
+          existing.client.ev.removeAllListeners('messages.update');
+          existing.client.ws.close();
+        } catch (e) {}
         this.sessions.delete(sessionId);
       }
 
-      const client = new Client({
-        authStrategy: new LocalAuth({
-          clientId: sessionId,
-          dataPath: AUTH_DIR
-        }),
-        webVersionCache: {
-          type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-        },
-        puppeteer: {
-          headless: true, // Set to true for production
-          handleSIGINT: false,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-extensions',
-            '--disable-software-rasterizer',
-            '--ignore-certificate-errors',
-            '--no-default-browser-check',
-            '--single-process'
-          ]
-        }
-      });
+      const sessionFolder = path.join(AUTH_DIR, `baileys_${sessionId}`);
+      if (!fs.existsSync(sessionFolder)) {
+        fs.mkdirSync(sessionFolder, { recursive: true });
+      }
 
-      logger.info(`[${name}] Browser launching...`);
+      const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+      const { version } = await fetchLatestBaileysVersion();
 
       const db = getDb();
-      const [rows]: any = await db.query('SELECT daily_sent_count, daily_limit, phone_number, last_sent_at FROM wa_sessions WHERE id = ?', [sessionId]);
+      const [rows]: any = await db.query(
+        'SELECT daily_sent_count, daily_limit, phone_number, last_sent_at FROM wa_sessions WHERE id = ?',
+        [sessionId]
+      );
       const sessionDb = rows[0] || {};
 
       let dailySentCount = sessionDb.daily_sent_count || 0;
       const lastSentAt = sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null;
       const today = new Date();
 
-      // Auto-reset daily count if it's a new day
       if (lastSentAt && !this.isSameDay(lastSentAt, today)) {
         logger.info(`[${name}] New day detected. Resetting daily_sent_count from ${dailySentCount} to 0.`);
         dailySentCount = 0;
@@ -136,145 +129,194 @@ export class SessionManager extends EventEmitter {
         name,
         phoneNumber: sessionDb.phone_number || null,
         status: 'connecting',
-        dailySentCount: dailySentCount,
+        dailySentCount,
         dailyLimit: sessionDb.daily_limit || 200,
-        lastSentAt: lastSentAt,
+        lastSentAt,
       };
 
-      this.sessions.set(sessionId, { client, info });
+      const sock = makeWASocket({
+        version,
+        auth: state,
+        logger: pino({ level: 'silent' }) as any,
+        printQRInTerminal: false,
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: true,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
+      });
 
-      client.on('qr', async (qr) => {
-        logger.info(`[DEBUG] QR Received. Length: ${qr?.length}`);
-        info.status = 'qr';
-        info.qr = qr;
-        try {
-          const qrDataUrl = await QRCode.toDataURL(qr, { 
-            version: 15,
-            errorCorrectionLevel: 'L'
+      const activeSession: ActiveSession = {
+        client: sock,
+        info,
+        contacts: new Map(),
+        chats: new Map(),
+      };
+
+      this.sessions.set(sessionId, activeSession);
+
+      // Save credentials whenever updated
+      sock.ev.on('creds.update', saveCreds);
+
+      // Connection update handler (QR code & status)
+      sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          logger.info(`⚡ [DEBUG] Baileys QR Received for ${name}. Instant QR Code ready.`);
+          info.status = 'qr';
+          info.qr = qr;
+          try {
+            const qrDataUrl = await QRCode.toDataURL(qr, {
+              version: 15,
+              errorCorrectionLevel: 'L',
+              margin: 2,
+            });
+            this.emit('qr.updated', { sessionId, qr: qrDataUrl });
+          } catch (err) {
+            logger.error(`[ERROR] Gagal generate QR: ${err}`);
+          }
+        }
+
+        if (connection === 'close') {
+          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          logger.warn(`❌ [${name}] Baileys connection closed. Reason: ${statusCode}, Reconnect: ${shouldReconnect}`);
+
+          info.status = 'disconnected';
+          this.sessions.delete(sessionId);
+          await this.updateSessionDb(sessionId, { status: 'disconnected' });
+          this.emit('status.update', { sessionId, status: 'disconnected' });
+
+          if (statusCode === DisconnectReason.loggedOut) {
+            logger.warn(`[${name}] Logged out. Cleaning session files...`);
+            try {
+              fs.rmSync(sessionFolder, { recursive: true, force: true });
+            } catch (e) {}
+          } else if (shouldReconnect) {
+            setTimeout(() => {
+              logger.info(`🔄 [${name}] Reconnecting session automatically...`);
+              this.connectSession(sessionId, name).catch(() => {});
+            }, 3000);
+          }
+        } else if (connection === 'open') {
+          const userJid = sock.user?.id ? sock.user.id.split(':')[0] + '@c.us' : '';
+          info.status = 'active';
+          info.phoneNumber = userJid;
+          info.qr = undefined;
+
+          logger.info(`✅ [${name}] WhatsApp is READY! Connected as: ${userJid}`);
+
+          try {
+            await this.updateSessionDb(sessionId, { status: 'active', phone_number: userJid || 'unknown' });
+          } catch (e) {
+            logger.warn(`[${name}] DB update failed: ${e}`);
+          }
+
+          this.emit('connected', { sessionId, phoneNumber: userJid });
+        }
+      });
+
+      // Track contacts & group names from updates
+      sock.ev.on('contacts.upsert', (newContacts) => {
+        for (const c of newContacts) {
+          activeSession.contacts.set(c.id, {
+            id: c.id,
+            name: c.name || c.notify || c.verifiedName || '',
+            notify: c.notify,
           });
-          this.emit('qr.updated', { sessionId, qr: qrDataUrl });
-        } catch (err) {
-          logger.error(`[ERROR] Gagal generate QR: ${err}`);
         }
       });
 
-      client.on('ready', async () => {
-        logger.info(`✅ [${name}] WhatsApp is ready!`);
-        info.status = 'active';
-        info.qr = undefined;
-        
-        let fullJid = '';
-        try {
-          const myInfo = client.info;
-          fullJid = myInfo?.wid?._serialized || myInfo?.wid?.user || '';
-          info.phoneNumber = fullJid;
-          logger.info(`✅ [${name}] Phone: ${fullJid}`);
-        } catch (e) {
-          logger.warn(`[${name}] Could not get phone info: ${e}`);
+      sock.ev.on('contacts.update', (updates) => {
+        for (const c of updates) {
+          const existingContact = activeSession.contacts.get(c.id || '') || { id: c.id || '', name: '' };
+          if (c.notify) existingContact.notify = c.notify;
+          if (c.name) existingContact.name = c.name;
+          if (c.id) activeSession.contacts.set(c.id, existingContact);
         }
+      });
 
-        try {
-          await this.updateSessionDb(sessionId, { status: 'active', phone_number: fullJid || 'unknown' });
-        } catch (e) {
-          logger.warn(`[${name}] DB update failed: ${e}`);
+      sock.ev.on('chats.upsert', (newChats) => {
+        for (const ch of newChats) {
+          if (ch.id) {
+            activeSession.chats.set(ch.id, ch);
+          }
         }
-        
-        this.emit('connected', { sessionId, phoneNumber: fullJid });
-        logger.info(`✅ [${name}] 'connected' event emitted!`);
       });
 
-      client.on('authenticated', () => {
-        logger.info(`[${name}] Authenticated!`);
-      });
-
-      client.on('auth_failure', async (msg) => {
-        logger.error(`❌ [${name}] Auth failure: ${msg}`);
-        info.status = 'disconnected';
-        await this.updateSessionDb(sessionId, { status: 'disconnected' });
-      });
-
-      client.on('disconnected', async (reason) => {
-        logger.warn(`❌ [${name}] Client was logged out: ${reason}`);
-        info.status = 'disconnected';
-        this.sessions.delete(sessionId);
-        await this.updateSessionDb(sessionId, { status: 'disconnected' });
-      });
-
-      client.on('message', async (msg: any) => {
-        if (msg.from === 'status@broadcast') return;
+      // Handle incoming and outgoing messages
+      sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (!settingsService.isLiveChatEnabled()) return;
 
-        let pushName = 'User';
-        try {
-          const contact = await msg.getContact();
-          pushName = contact.name || contact.pushname || contact.number || 'User';
-        } catch (e) {}
+        for (const m of messages) {
+          if (!m.message) continue;
+          const fromMe = m.key.fromMe || false;
+          const remoteJid = m.key.remoteJid;
 
-        const eventData = {
-          sessionId,
-          phone_number: msg.from,
-          messageId: msg.id.id,
-          pushName,
-          message_text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
-          is_from_me: msg.fromMe,
-          created_at: new Date()
-        };
+          if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@newsletter')) continue;
 
-        this.emit('message', eventData);
-        logger.info(`[EVENT] Incoming message from ${msg.from}`);
-      });
+          const text =
+            m.message.conversation ||
+            m.message.extendedTextMessage?.text ||
+            m.message.imageMessage?.caption ||
+            m.message.videoMessage?.caption ||
+            (m.message.imageMessage ? '[Gambar]' : m.message.videoMessage ? '[Video]' : '[Pesan]');
 
-      // Handle self-sent messages (e.g. from phone)
-      client.on('message_create', async (msg: any) => {
-        if (!msg.fromMe) return; // 'message' event handles incoming
-        if (msg.to === 'status@broadcast') return;
-        
-        const eventData = {
-          sessionId,
-          phone_number: msg.to,
-          messageId: msg.id.id,
-          message_text: msg.body || (msg.hasMedia ? '[Media]' : '[Pesan]'),
-          is_from_me: true,
-          created_at: new Date()
-        };
-        
-        this.emit('message', eventData);
-      });
+          const pushName = m.pushName || 'User';
+          const messageId = m.key.id || uuidv4();
 
-      client.on('message_ack', async (msg: any, ack: number) => {
-        let status = 'sent';
-        if (ack === 2) status = 'delivered';
-        if (ack === 3) status = 'read';
-        if (ack === 0) status = 'failed';
+          const eventData = {
+            sessionId,
+            phone_number: remoteJid,
+            from: remoteJid,
+            messageId,
+            pushName,
+            message_text: text,
+            text,
+            is_from_me: fromMe,
+            created_at: new Date((Number(m.messageTimestamp) || Date.now() / 1000) * 1000),
+          };
 
-        try {
-          const db = getDb();
-          const messageId = msg.id._serialized || msg.id.id;
-          
-          await db.query('UPDATE wa_chats SET status = ? WHERE message_id = ?', [status, messageId]);
-          await db.query(`
-            UPDATE wa_message_logs 
-            SET status = ? 
-            WHERE metadata->'$.waMessageId' = ? OR metadata->'$.waMessageId' = ?
-          `, [status, messageId, msg.id.id]);
-          
-          this.emit('message.ack', { sessionId, messageId, status });
-        } catch (e: any) {
-          logger.warn(`[ACK] Error updating status: ${e.message}`);
+          // Emit to both listeners (index.ts listens to 'message.received', older listeners to 'message')
+          this.emit('message', eventData);
+          this.emit('message.received', eventData);
+          logger.info(`[EVENT] WhatsApp message from ${remoteJid} (fromMe=${fromMe})`);
         }
       });
 
-      client.initialize().catch((err: any) => {
-        if (!err.message.includes('EBUSY') && !err.message.includes('locked')) {
-          logger.error(`[CRITICAL] Error initializing client ${sessionId}: ${err.message}`);
+      // Message Ack / Status updates
+      sock.ev.on('messages.update', async (updates: any[]) => {
+        for (const update of updates) {
+          const messageId = update.key?.id;
+          const updateStatus = update.update?.status ?? update.status;
+          if (!messageId || updateStatus === undefined) continue;
+
+          let status = 'sent';
+          if (updateStatus === proto.WebMessageInfo.Status.DELIVERY_ACK) status = 'delivered';
+          if (updateStatus === proto.WebMessageInfo.Status.READ) status = 'read';
+          if (updateStatus === proto.WebMessageInfo.Status.ERROR) status = 'failed';
+
+          try {
+            const db = getDb();
+            await db.query('UPDATE wa_chats SET status = ? WHERE message_id = ?', [status, messageId]);
+            await db.query(
+              `UPDATE wa_message_logs 
+               SET status = ? 
+               WHERE metadata->'$.waMessageId' = ? OR metadata->'$.waMessageId' = ?`,
+              [status, messageId, messageId]
+            );
+
+            this.emit('message.ack', { sessionId, messageId, status });
+          } catch (e: any) {
+            logger.warn(`[ACK] Error updating status: ${e.message}`);
+          }
         }
       });
 
       return info;
     } catch (err: any) {
-      if (!err.message.includes('EBUSY')) {
-        logger.error(`[CRITICAL] connectSession failed: ${err.message}`);
-      }
+      logger.error(`[CRITICAL] connectSession failed: ${err.message}`);
       return { id: sessionId, name: 'Retry Required', status: 'disconnected' } as any;
     }
   }
@@ -282,7 +324,12 @@ export class SessionManager extends EventEmitter {
   async createSession(name: string, dailyLimit: number = 200): Promise<SessionInfo> {
     const id = uuidv4();
     const db = getDb();
-    await db.query('INSERT INTO wa_sessions (id, name, status, daily_limit) VALUES (?, ?, ?, ?)', [id, name, 'connecting', dailyLimit]);
+    await db.query('INSERT INTO wa_sessions (id, name, status, daily_limit) VALUES (?, ?, ?, ?)', [
+      id,
+      name,
+      'connecting',
+      dailyLimit,
+    ]);
     return this.connectSession(id, name);
   }
 
@@ -290,7 +337,10 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
-        await active.client.destroy();
+        active.client.ev.removeAllListeners('connection.update');
+        active.client.ev.removeAllListeners('messages.upsert');
+        active.client.ev.removeAllListeners('messages.update');
+        active.client.ws.close();
       } catch (err: any) {}
       this.sessions.delete(sessionId);
       const db = getDb();
@@ -303,17 +353,19 @@ export class SessionManager extends EventEmitter {
     const active = this.sessions.get(sessionId);
     if (active) {
       try {
-        try { await active.client.logout(); } catch (e) {}
-        await active.client.destroy();
+        try {
+          await active.client.logout();
+        } catch (e) {}
+        active.client.ws.close();
       } catch (err: any) {}
       this.sessions.delete(sessionId);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     const db = getDb();
     await db.query('DELETE FROM wa_sessions WHERE id = ?', [sessionId]);
-    
-    const sessionDir = path.join(AUTH_DIR, `session-${sessionId}`);
+
+    const sessionDir = path.join(AUTH_DIR, `baileys_${sessionId}`);
     if (fs.existsSync(sessionDir)) {
       try {
         fs.rmSync(sessionDir, { recursive: true, force: true });
@@ -327,7 +379,7 @@ export class SessionManager extends EventEmitter {
 
   getAllSessions(): SessionInfo[] {
     const today = new Date();
-    return Array.from(this.sessions.values()).map(s => {
+    return Array.from(this.sessions.values()).map((s) => {
       if (s.info.lastSentAt && !this.isSameDay(s.info.lastSentAt, today)) {
         s.info.dailySentCount = 0;
       }
@@ -344,19 +396,21 @@ export class SessionManager extends EventEmitter {
   async updateSessionEnabledStatus(sessionId: string, enabled: boolean): Promise<void> {
     const db = getDb();
     await db.query('UPDATE wa_sessions SET is_enabled = ? WHERE id = ?', [enabled ? 1 : 0, sessionId]);
-    
+
     if (!enabled) {
       await this.disconnectSession(sessionId);
     } else {
       const dbSessions = await this.getAllSessionsFromDb();
-      const s = dbSessions.find(x => x.id === sessionId);
+      const s = dbSessions.find((x) => x.id === sessionId);
       if (s) await this.connectSession(sessionId, s.name);
     }
   }
 
   private async updateSessionDb(id: string, data: any): Promise<void> {
     const db = getDb();
-    const fields = Object.keys(data).map(f => `${f} = ?`).join(', ');
+    const fields = Object.keys(data)
+      .map((f) => `${f} = ?`)
+      .join(', ');
     const values = [...Object.values(data), id];
     await db.query(`UPDATE wa_sessions SET ${fields} WHERE id = ?`, values);
   }
@@ -364,13 +418,15 @@ export class SessionManager extends EventEmitter {
   async restartSession(sessionId: string): Promise<SessionInfo> {
     const active = this.sessions.get(sessionId);
     const name = active?.info?.name || 'Unknown';
-    
+
     if (active) {
-      try { await active.client.destroy().catch(() => {}); } catch (e) {}
+      try {
+        active.client.ws.close();
+      } catch (e) {}
       this.sessions.delete(sessionId);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
-    
+
     return this.connectSession(sessionId, name);
   }
 
@@ -379,25 +435,25 @@ export class SessionManager extends EventEmitter {
     if (!active || active.info.status !== 'active') {
       throw new Error('Session not active');
     }
-    
+
     let chatId = to;
     if (!chatId.includes('@')) {
-      chatId = `${chatId}@c.us`;
+      chatId = `${chatId}@s.whatsapp.net`;
+    } else if (chatId.endsWith('@c.us')) {
+      chatId = chatId.replace('@c.us', '@s.whatsapp.net');
     }
 
-    const result = await (async () => {
-      try {
-        const chat = await active.client.getChatById(chatId);
-        await chat.sendSeen();
-        await chat.sendStateTyping();
-        const typingDelay = Math.floor(Math.random() * 2000) + 1000;
-        await new Promise(resolve => setTimeout(resolve, typingDelay));
-        return await active.client.sendMessage(chatId, text);
-      } catch (err) {
-        return await active.client.sendMessage(chatId, text);
-      }
-    })();
-    
+    // Typing simulation (anti-ban behavior)
+    try {
+      await active.client.presenceSubscribe(chatId);
+      await active.client.sendPresenceUpdate('composing', chatId);
+      const typingDelay = Math.floor(Math.random() * 1500) + 1000;
+      await new Promise((resolve) => setTimeout(resolve, typingDelay));
+      await active.client.sendPresenceUpdate('paused', chatId);
+    } catch (e) {}
+
+    const result = await active.client.sendMessage(chatId, { text });
+
     // Update daily count and handle reset
     const today = new Date();
     if (active.info.lastSentAt && !this.isSameDay(active.info.lastSentAt, today)) {
@@ -406,29 +462,36 @@ export class SessionManager extends EventEmitter {
       active.info.dailySentCount++;
     }
     active.info.lastSentAt = today;
-    
+
     const db = getDb();
-    await db.query(`
-      UPDATE wa_sessions 
-      SET 
-        daily_sent_count = IF(DATE(last_sent_at) != CURDATE(), 1, daily_sent_count + 1), 
-        last_sent_at = NOW() 
-      WHERE id = ?
-    `, [sessionId]);
-    
-    return result;
+    await db.query(
+      `UPDATE wa_sessions 
+       SET 
+         daily_sent_count = IF(DATE(last_sent_at) != CURDATE(), 1, daily_sent_count + 1), 
+         last_sent_at = NOW() 
+       WHERE id = ?`,
+      [sessionId]
+    );
+
+    return {
+      id: {
+        id: result?.key?.id,
+        _serialized: result?.key?.id,
+      },
+      raw: result,
+    };
   }
 
   getBestSession(): SessionInfo | null {
     const today = new Date();
     const activeSessions = Array.from(this.sessions.values())
-      .map(s => {
+      .map((s) => {
         if (s.info.lastSentAt && !this.isSameDay(s.info.lastSentAt, today)) {
           s.info.dailySentCount = 0;
         }
         return s.info;
       })
-      .filter(info => info.status === 'active' && info.dailySentCount < info.dailyLimit)
+      .filter((info) => info.status === 'active' && info.dailySentCount < info.dailyLimit)
       .sort((a, b) => a.dailySentCount - b.dailySentCount);
 
     return activeSessions.length > 0 ? activeSessions[0] : null;
@@ -467,53 +530,40 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
-    const { client, info } = active;
+    const { client, info, contacts } = active;
     const name = info.name;
 
     try {
-      logger.info(`[SYNC] [${name}] Memulai sinkronisasi kontak & grup...`);
+      logger.info(`[SYNC] [${name}] Memulai sinkronisasi kontak & grup (Baileys)...`);
       this.emit('sync.progress', { sessionId, status: 'started', message: 'Mengambil data dari WhatsApp...' });
 
-      const contacts = await client.getContacts();
-      const validContacts = contacts.filter((c: any) => 
-        c.isMyContact && !c.isGroup && c.id._serialized !== 'status@broadcast'
-      );
+      // Fetch groups from Baileys
+      let groupsList: any[] = [];
+      try {
+        const participatingGroups = await client.groupFetchAllParticipating();
+        groupsList = Object.values(participatingGroups).map((g: any) => ({
+          id: g.id,
+          name: g.subject || g.id,
+          phone: g.id.split('@')[0],
+        }));
+      } catch (e: any) {
+        logger.warn(`[SYNC] Failed to fetch groups: ${e.message}`);
+      }
 
-      const chats = await client.getChats();
-      const groups = chats.filter((c: any) => c.isGroup);
-      
-      const allSync = [
-        ...validContacts.map((c: any) => ({
-          id: c.id._serialized,
-          name: c.name || c.pushname || c.id.user,
-          phone: c.id.user,
-        })),
-        ...groups.map((c: any) => ({
-          id: c.id._serialized,
-          name: c.name || c.id.user,
-          phone: c.id.user,
-        }))
-      ];
+      // Convert cached contacts
+      const contactList = Array.from(contacts.values()).map((c) => ({
+        id: c.id,
+        name: c.name || c.notify || c.id.split('@')[0],
+        phone: c.id.split('@')[0],
+      }));
+
+      const allSync = [...contactList, ...groupsList];
 
       this.emit('contacts.received', { sessionId, contacts: allSync });
-      logger.info(`[SYNC] [${name}] Berhasil menarik ${validContacts.length} kontak dan ${groups.length} grup.`);
-
-      if (settingsService.isLiveChatEnabled()) {
-        logger.info(`[SYNC] [${name}] Menarik riwayat obrolan (Live Chat)...`);
-        let allMessages: any[] = [];
-        const recentChats = chats.slice(0, 20); 
-        for (const chat of recentChats) {
-          try {
-            const msgs = await chat.fetchMessages({ limit: 15 });
-            allMessages.push(...msgs);
-          } catch (e) {}
-        }
-        this.emit('history.received', { sessionId, messages: allMessages });
-      }
+      logger.info(`[SYNC] [${name}] Berhasil menarik ${contactList.length} kontak dan ${groupsList.length} grup.`);
 
       this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
       logger.info(`✅ [SYNC] [${name}] Sinkronisasi selesai.`);
-
     } catch (err: any) {
       logger.error(`❌ [SYNC] [${name}] Gagal: ${err.message}`);
       this.emit('sync.progress', { sessionId, status: 'failed', message: `Gagal: ${err.message}` });
@@ -524,15 +574,24 @@ export class SessionManager extends EventEmitter {
   async markAsRead(sessionId: string, chatId: string, messageIds?: string[]): Promise<void> {
     const active = this.sessions.get(sessionId);
     if (!active || active.info.status !== 'active') return;
-    
+
     try {
       let resolvedChatId = chatId;
       if (!resolvedChatId.includes('@')) {
-        resolvedChatId = `${resolvedChatId}@c.us`;
+        resolvedChatId = `${resolvedChatId}@s.whatsapp.net`;
+      } else if (resolvedChatId.endsWith('@c.us')) {
+        resolvedChatId = resolvedChatId.replace('@c.us', '@s.whatsapp.net');
       }
-      const chat = await active.client.getChatById(resolvedChatId);
-      if (chat) {
-        await chat.sendSeen();
+
+      if (messageIds && messageIds.length > 0) {
+        await active.client.readMessages(
+          messageIds.map((id) => ({
+            remoteJid: resolvedChatId,
+            id,
+          }))
+        );
+      } else {
+        await active.client.sendPresenceUpdate('available');
       }
     } catch (e) {
       logger.warn(`[markAsRead] Failed: ${e}`);

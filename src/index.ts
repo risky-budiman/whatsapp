@@ -60,8 +60,8 @@ app.use('/api/auth', authRoutes);
 
 // Hybrid Authentication (Session OR API Key)
 app.use('/api', async (req, res, next) => {
-  // 1. Skip for Public Auth Routes (already handled)
-  if (req.path.startsWith('/auth/')) return next();
+  // 1. Skip for Public Auth Routes and QR Code SSE streams
+  if (req.path.startsWith('/auth/') || req.path.endsWith('/qr') || req.path.endsWith('/qr-image')) return next();
 
   // 2. Try Web Session OR Header Token OR Query Token (Total Fallback)
   const headerToken = req.headers['x-auth-token'] || req.headers['X-Auth-Token'];
