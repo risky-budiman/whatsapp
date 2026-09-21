@@ -564,7 +564,7 @@ async function renderSessions() {
                 </label>
                 ` : ''}
               </div>
-              <p>${s.phone_number || (isWaiting ? 'Menunggu Scan...' : (s.is_enabled ? 'Terputus' : 'Dinonaktifkan'))}</p>
+              <p>${isActive && s.phone_number ? s.phone_number : (isWaiting ? 'Menunggu Scan...' : (s.is_enabled ? 'Terputus' : 'Dinonaktifkan'))}</p>
             </div>
             <span class="badge ${s.is_enabled ? s.status : 'disconnected'}">${s.is_enabled ? statusText : 'OFF'}</span>
           </div>

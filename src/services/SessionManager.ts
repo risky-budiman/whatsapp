@@ -101,6 +101,26 @@ export class SessionManager extends EventEmitter {
       }
 
       const sessionFolder = path.join(AUTH_DIR, `baileys_${sessionId}`);
+      const credsFile = path.join(sessionFolder, 'creds.json');
+
+      const db = getDb();
+      const [rows]: any = await db.query(
+        'SELECT daily_sent_count, daily_limit, phone_number, status, last_sent_at FROM wa_sessions WHERE id = ?',
+        [sessionId]
+      );
+      const sessionDb = rows[0] || {};
+
+      // If connecting a session that is NOT already active, wipe old creds so WhatsApp generates a fresh QR immediately without handshake hangs
+      if (sessionDb.status !== 'active') {
+        if (fs.existsSync(sessionFolder)) {
+          try {
+            fs.rmSync(sessionFolder, { recursive: true, force: true });
+          } catch (e) {}
+        }
+        await db.query('UPDATE wa_sessions SET phone_number = NULL, status = "connecting" WHERE id = ?', [sessionId]);
+        sessionDb.phone_number = null;
+      }
+
       if (!fs.existsSync(sessionFolder)) {
         fs.mkdirSync(sessionFolder, { recursive: true });
       }
@@ -118,13 +138,6 @@ export class SessionManager extends EventEmitter {
           version = [2, 3000, 1015901307]; // Safe Baileys web version fallback
         }
       }
-
-      const db = getDb();
-      const [rows]: any = await db.query(
-        'SELECT daily_sent_count, daily_limit, phone_number, last_sent_at FROM wa_sessions WHERE id = ?',
-        [sessionId]
-      );
-      const sessionDb = rows[0] || {};
 
       let dailySentCount = sessionDb.daily_sent_count || 0;
       const lastSentAt = sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null;
