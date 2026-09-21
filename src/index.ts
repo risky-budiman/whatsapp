@@ -319,22 +319,31 @@ async function start() {
           for (let i = 0; i < contacts.length; i += 100) {
             const batch = contacts.slice(i, i + 100);
             await Promise.all(batch.map(async (contact: any) => {
-              const phoneNumber = contact.phone || contact.id?.split('@')[0] || '';
-              const contactName = contact.name || phoneNumber;
-              // Use native format directly
-              const fullId = contact.id || `${phoneNumber}@c.us`;
+              const isGroup = contact.isGroup || (contact.id && contact.id.endsWith('@g.us')) || (contact.phone && contact.phone.endsWith('@g.us'));
+              const rawIdentifier = contact.phone || contact.id?.split('@')[0] || '';
+              if (!rawIdentifier) return;
 
-              if (!phoneNumber) return;
+              let fullId = contact.id;
+              if (!fullId) {
+                fullId = isGroup ? `${rawIdentifier.split('@')[0]}@g.us` : `${rawIdentifier.split('@')[0]}@c.us`;
+              } else if (!isGroup && !fullId.endsWith('@c.us')) {
+                fullId = `${fullId.split('@')[0]}@c.us`;
+              }
+
+              const contactName = contact.name || (isGroup ? `Grup ${fullId.split('@')[0]}` : fullId.split('@')[0]);
+              const tagList = isGroup ? ['Grup'] : ['Personal'];
+              const tagsJson = JSON.stringify(tagList);
 
               await db.query(`
-                INSERT INTO wa_contacts (id, session_id, phone_number, name, source)
-                VALUES (?, ?, ?, ?, 'device_sync')
+                INSERT INTO wa_contacts (id, session_id, phone_number, name, tags, source)
+                VALUES (?, ?, ?, ?, ?, 'device_sync')
                 ON DUPLICATE KEY UPDATE 
                   session_id = VALUES(session_id),
-                  name = IF(VALUES(name) != VALUES(phone_number), VALUES(name), name),
+                  name = IF(VALUES(name) != VALUES(phone_number) AND VALUES(name) != '', VALUES(name), name),
+                  tags = IF(tags IS NULL OR tags = '[]', VALUES(tags), tags),
                   phone_number = VALUES(phone_number),
                   updated_at = CURRENT_TIMESTAMP
-              `, [uuidv4(), data.sessionId, fullId, contactName]);
+              `, [uuidv4(), data.sessionId, fullId, contactName, tagsJson]);
             }));
           }
           logger.info(`[SYNC] Berhasil memproses ${contacts.length} kontak.`);

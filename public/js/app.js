@@ -918,7 +918,7 @@ function changeContactPage(dir) {
 function displayContacts(contacts) {
   const tbody = document.getElementById('contacts-tbody');
   if (contacts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
     return;
   }
 
@@ -933,6 +933,11 @@ function displayContacts(contacts) {
         <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-name="${displayName}"></td>
         <td><strong>${displayName}</strong></td>
         <td>${c.phone_number.split('@')[0]}</td>
+        <td>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); font-size: 0.72rem; font-weight: 600;">
+            <i class="fa-solid fa-user" style="margin-right: 4px;"></i> Personal
+          </span>
+        </td>
         <td>${tagHtml || '-'}</td>
         <td><span class="badge" style="font-size:0.7rem">${c.source}</span></td>
         <td>
@@ -1051,7 +1056,7 @@ function changeGroupPage(dir) {
 function displayGroups(groups) {
   const tbody = document.getElementById('groups-tbody');
   if (groups.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
     return;
   }
 
@@ -1063,8 +1068,13 @@ function displayGroups(groups) {
         <td>${groupOffset + index + 1}</td>
         <td><strong>${displayName}</strong></td>
         <td>${g.phone_number}</td>
+        <td>
+          <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: var(--primary); font-size: 0.72rem; font-weight: 600;">
+            <i class="fa-solid fa-users" style="margin-right: 4px;"></i> Grup
+          </span>
+        </td>
         <td><span class="badge active">Active</span></td>
-        <td>${g.source}</td>
+        <td><span class="badge" style="font-size:0.7rem">${g.source}</span></td>
       </tr>
     `;
   }).join('');
@@ -1484,8 +1494,9 @@ function initChatStream() {
         setTimeout(() => {
           if (overlay) overlay.style.display = 'none';
           renderContacts();
+          renderGroups();
           renderSessions();
-        }, 2000);
+        }, 1500);
       }
       return;
     }

@@ -599,25 +599,35 @@ export class SessionManager extends EventEmitter {
       try {
         const participatingGroups = await client.groupFetchAllParticipating();
         groupsList = Object.values(participatingGroups).map((g: any) => ({
-          id: g.id,
+          id: g.id, // e.g. 120363xxx@g.us
           name: g.subject || g.id,
-          phone: g.id.split('@')[0],
+          phone: g.id, // retain full group JID with @g.us
+          isGroup: true,
+          type: 'group',
+          participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
         }));
       } catch (e: any) {
         logger.warn(`[SYNC] Failed to fetch groups: ${e.message}`);
       }
 
-      // Convert cached contacts
-      const contactList = Array.from(contacts.values()).map((c) => ({
-        id: c.id,
-        name: c.name || c.notify || c.id.split('@')[0],
-        phone: c.id.split('@')[0],
-      }));
+      // Convert cached personal contacts
+      const contactList = Array.from(contacts.values())
+        .filter((c) => !c.id.endsWith('@g.us')) // Filter out groups here since groups are fetched fresh above
+        .map((c) => {
+          const rawPhone = c.id.split('@')[0];
+          return {
+            id: c.id.endsWith('@c.us') || c.id.endsWith('@s.whatsapp.net') ? c.id.replace('@s.whatsapp.net', '@c.us') : `${rawPhone}@c.us`,
+            name: c.name || c.notify || rawPhone,
+            phone: rawPhone,
+            isGroup: false,
+            type: 'personal',
+          };
+        });
 
       const allSync = [...contactList, ...groupsList];
 
       this.emit('contacts.received', { sessionId, contacts: allSync });
-      logger.info(`[SYNC] [${name}] Berhasil menarik ${contactList.length} kontak dan ${groupsList.length} grup.`);
+      logger.info(`[SYNC] [${name}] Berhasil menarik ${contactList.length} kontak personal dan ${groupsList.length} grup.`);
 
       this.emit('sync.progress', { sessionId, status: 'completed', message: 'Sinkronisasi selesai' });
       logger.info(`✅ [SYNC] [${name}] Sinkronisasi selesai.`);
