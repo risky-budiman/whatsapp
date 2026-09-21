@@ -700,6 +700,36 @@ async function saveSessionEdit(e) {
   }
 }
 
+let qrPollInterval = null;
+
+async function checkQrFallback(id, container, msg) {
+  try {
+    const res = await wa_api.fetch(`/sessions/${id}/qr-image`);
+    if (res && res.success && res.qr) {
+      const now = new Date().toLocaleTimeString();
+      if (container) container.innerHTML = `
+        <img src="${res.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
+        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+          <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
+        </div>
+      `;
+      if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+    } else if (res && res.status === 'active') {
+      if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
+        <i class="fa-solid fa-circle-check fa-3x" style="margin-bottom:15px"></i>
+        <span>Berhasil Terhubung!</span>
+      </div>`;
+      if (msg) msg.innerText = 'WhatsApp Berhasil Terhubung!';
+      if (qrPollInterval) clearInterval(qrPollInterval);
+      if (qrEventSource) qrEventSource.close();
+      renderSessions();
+      setTimeout(() => closeModal('modal-qr'), 1500);
+    }
+  } catch (e) {
+    // QR might not be ready yet, continue polling
+  }
+}
+
 async function openQrModal(id) {
   const container = document.getElementById('qr-image-container');
   const msg = document.getElementById('qr-status');
@@ -708,58 +738,82 @@ async function openQrModal(id) {
   if (msg) msg.innerText = 'Menghubungkan ke WhatsApp...';
   openModal('modal-qr');
 
+  if (qrPollInterval) clearInterval(qrPollInterval);
+  if (qrEventSource) qrEventSource.close();
+
   try {
     // 1. Trigger connection on backend
     await wa_api.sessions.connect(id);
 
-    // 2. Start SSE
-    if (qrEventSource) qrEventSource.close();
+    // 2. Start polling fallback immediately (in case SSE is buffered by Nginx)
+    checkQrFallback(id, container, msg);
+    qrPollInterval = setInterval(() => {
+      checkQrFallback(id, container, msg);
+    }, 2000);
+
+    // 3. Start SSE
     const token = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token') || '';
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     qrEventSource = new EventSource(`/api/sessions/${id}/qr${tokenParam}`);
     
     qrEventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const now = new Date().toLocaleTimeString();
-      
-      if (data.type === 'qr') {
-        if (container) container.innerHTML = `
-          <img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
-          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
-            <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
-          </div>
-        `;
-        if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
-      } else if (data.type === 'connected') {
-        if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
-          <i class="fa-solid fa-circle-check fa-3x" style="margin-bottom:15px"></i>
-          <span>Berhasil Terhubung!</span>
-        </div>`;
-        if (msg) msg.innerText = `Terhubung ke: ${data.phone_number || 'WhatsApp'}`;
+      try {
+        const data = JSON.parse(event.data);
+        const now = new Date().toLocaleTimeString();
         
-        // Refresh session list
-        renderSessions();
-      } else if (data.type === 'sync_progress') {
-        if (msg) msg.innerText = `Sinkronisasi: ${data.message}`;
-        if (data.status === 'completed') {
-          setTimeout(() => {
-            closeModal('modal-qr');
-            qrEventSource.close();
-            renderContacts();
-            renderGroups();
-          }, 2000);
+        if (data.type === 'qr') {
+          if (container) container.innerHTML = `
+            <img src="${data.qr}" alt="QR Code" style="max-width:100%; height:auto; border-radius:10px; border:1px solid #ddd;">
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+              <i class="fa-solid fa-sync fa-spin"></i> Terakhir diperbarui: ${now}
+            </div>
+          `;
+          if (msg) msg.innerText = 'Silakan scan QR Code dengan WhatsApp Anda';
+        } else if (data.type === 'connected') {
+          if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--primary-color); flex-direction:column;">
+            <i class="fa-solid fa-circle-check fa-3x" style="margin-bottom:15px"></i>
+            <span>Berhasil Terhubung!</span>
+          </div>`;
+          if (msg) msg.innerText = `Terhubung ke: ${data.phone_number || 'WhatsApp'}`;
+          
+          if (qrPollInterval) clearInterval(qrPollInterval);
+          if (qrEventSource) qrEventSource.close();
+          renderSessions();
+          setTimeout(() => closeModal('modal-qr'), 1500);
+        } else if (data.type === 'sync_progress') {
+          if (msg) msg.innerText = `Sinkronisasi: ${data.message}`;
+          if (data.status === 'completed') {
+            setTimeout(() => {
+              closeModal('modal-qr');
+              if (qrPollInterval) clearInterval(qrPollInterval);
+              if (qrEventSource) qrEventSource.close();
+              renderContacts();
+              renderGroups();
+            }, 2000);
+          }
         }
+      } catch (e) {
+        console.error("SSE parse error", e);
       }
     };
 
     qrEventSource.onerror = () => {
-      if (msg) msg.innerText = 'Koneksi terganggu, mencoba menyambung kembali...';
-      console.warn("SSE connection lost. Browser will auto-reconnect.");
+      // Fallback polling is already running, so user won't get stuck
+      console.warn("SSE stream issue; falling back to periodic QR polling.");
     };
 
   } catch (err) {
-    if (container) container.innerHTML = `<div class="qr-placeholder" style="color:var(--danger-color)">${err.message}</div>`;
+    if (container) container.innerHTML = `
+      <div class="qr-placeholder" style="color:var(--danger-color); flex-direction: column; gap: 10px;">
+        <i class="fa-solid fa-triangle-exclamation fa-2x"></i>
+        <span>${err.message}</span>
+        <button class="btn btn-sm btn-primary" onclick="openQrModal('${id}')" style="margin-top: 10px;">
+          <i class="fa-solid fa-rotate-right"></i> Coba Lagi
+        </button>
+      </div>
+    `;
     if (msg) msg.innerText = 'Gagal memulai koneksi.';
+    if (qrPollInterval) clearInterval(qrPollInterval);
   }
 }
 
@@ -1266,8 +1320,9 @@ function openModal(id) {
 
 function closeModal(id) {
   document.getElementById(id).classList.remove('active');
-  if (id === 'modal-qr' && qrEventSource) {
-    qrEventSource.close();
+  if (id === 'modal-qr') {
+    if (qrEventSource) qrEventSource.close();
+    if (qrPollInterval) clearInterval(qrPollInterval);
   }
 }
 

@@ -163,21 +163,25 @@ router.get('/:id/qr', async (req: Request, res: Response) => {
       return;
     }
 
-    // SSE stream for QR updates
+    // SSE stream for QR updates - disable buffering for Nginx/proxies
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
 
-    // Send current QR if available
+    // Send immediate initial status or QR if available
     if (session.info.qr) {
-      try {
-        const qrDataUrl = await QRCode.toDataURL(session.info.qr, { version: 15, errorCorrectionLevel: 'L' } as any);
+      const qrDataUrl = session.info.qr.startsWith('data:image/')
+        ? session.info.qr
+        : await QRCode.toDataURL(session.info.qr, { margin: 2 }).catch(() => null);
+
+      if (qrDataUrl) {
         res.write(`data: ${JSON.stringify({ type: 'qr', qr: qrDataUrl })}\n\n`);
-      } catch (e) {
-        logger.error(`QR encode error: ${e}`);
       }
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'waiting', status: session.info.status || 'connecting' })}\n\n`);
     }
 
     const onQr = async (data: { sessionId: string; qr: string }) => {
@@ -230,11 +234,19 @@ router.get('/:id/qr-image', async (req: Request, res: Response) => {
     const session = sm.getSession(id);
 
     if (!session || !session.info.qr) {
-      res.status(404).json({ success: false, message: 'No QR available' });
+      res.status(404).json({ success: false, message: 'No QR available', status: session ? session.info.status : 'disconnected' });
       return;
     }
 
-    const qrDataUrl = await QRCode.toDataURL(session.info.qr, { version: 15, errorCorrectionLevel: 'L', width: 300, margin: 2 } as any);
+    const qrDataUrl = session.info.qr.startsWith('data:image/')
+      ? session.info.qr
+      : await QRCode.toDataURL(session.info.qr, { width: 300, margin: 2 }).catch(() => null);
+
+    if (!qrDataUrl) {
+      res.status(500).json({ success: false, message: 'Failed to format QR image' });
+      return;
+    }
+
     res.json({ success: true, qr: qrDataUrl, status: session.info.status });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
