@@ -278,14 +278,14 @@
     <!-- VIEW: CONTACTS -->
     <section id="view-contacts" class="view-section">
       <div class="header">
-        <h1>Manajemen Kontak</h1>
+        <h1>Kontak Pribadi</h1>
         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..."
             onkeyup="filterContacts()" style="width: 220px; margin-bottom: 0;">
-          <select id="filter-contact-type" class="form-control" onchange="filterContacts()" style="width: 140px; margin-bottom: 0;">
-            <option value="all">Semua Tipe</option>
-            <option value="personal">Personal</option>
-            <option value="group">Grup</option>
+          <select id="filter-contact-type" class="form-control" onchange="filterContacts()" style="width: 150px; margin-bottom: 0;">
+            <option value="personal" selected>Personal Saja</option>
+            <option value="all">Semua Data</option>
+            <option value="group">Hanya Grup</option>
           </select>
           <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
@@ -352,6 +352,7 @@
               <th>Tipe</th>
               <th>Status</th>
               <th>Sumber</th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody id="groups-tbody">
@@ -811,12 +812,14 @@
           const limit = params.limit || 100;
           const offset = params.offset || 0;
           const type = params.type || 'all';
-          return wa_api.fetch(`/contacts?limit=${limit}&offset=${offset}&type=${encodeURIComponent(type)}`);
+          const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
+          return wa_api.fetch(`/contacts?limit=${limit}&offset=${offset}&type=${encodeURIComponent(type)}${q}`);
         },
         listGroups: (params = {}) => {
           const limit = params.limit || 100;
           const offset = params.offset || 0;
-          return wa_api.fetch(`/contacts/groups?limit=${limit}&offset=${offset}`);
+          const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
+          return wa_api.fetch(`/contacts/groups?limit=${limit}&offset=${offset}${q}`);
         },
 
         delete: (id) => wa_api.fetch(`/contacts/${id}`, { method: 'DELETE' })

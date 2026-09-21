@@ -35,20 +35,30 @@ const router = Router();
  *       200:
  *         description: List of contacts
  */
-// GET /api/contacts — List contacts with optional type filtering (all, personal, group)
+// GET /api/contacts — List contacts with optional type filtering (all, personal, group) and search query
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const limit = parseInt((req.query.limit as string) || '500', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
     const type = (req.query.type as string) || 'all'; // 'all' | 'personal' | 'group'
+    const q = ((req.query.q as string) || '').trim();
 
-    let whereClause = '';
+    const conditions: string[] = [];
+    const params: any[] = [];
+
     if (type === 'personal') {
-      whereClause = "WHERE wc.phone_number NOT LIKE '%@g.us'";
+      conditions.push("wc.phone_number NOT LIKE '%@g.us'");
     } else if (type === 'group') {
-      whereClause = "WHERE wc.phone_number LIKE '%@g.us'";
+      conditions.push("wc.phone_number LIKE '%@g.us'");
     }
+
+    if (q) {
+      conditions.push("(wc.name LIKE ? OR wc.phone_number LIKE ?)");
+      params.push(`%${q}%`, `%${q}%`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const [rows] = await db.query(
       `SELECT 
@@ -62,11 +72,11 @@ router.get('/', async (req: Request, res: Response) => {
       ${whereClause}
       ORDER BY wc.created_at DESC 
       LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [...params, limit, offset]
     );
 
     const countSql = whereClause ? `SELECT COUNT(*) as total FROM wa_contacts wc ${whereClause}` : 'SELECT COUNT(*) as total FROM wa_contacts';
-    const [countRows] = await db.query(countSql);
+    const [countRows] = await db.query(countSql, params);
     const total = (countRows as any[])[0].total;
 
     res.json({ success: true, data: rows, meta: { total, limit, offset } });
@@ -214,22 +224,33 @@ router.post('/import', async (req: Request, res: Response) => {
  *       200:
  *         description: List of groups
  */
-// GET /api/contacts/groups — List groups with pagination
+// GET /api/contacts/groups — List groups with pagination and optional search
 router.get('/groups', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const limit = parseInt((req.query.limit as string) || '500', 10);
     const offset = parseInt((req.query.offset as string) || '0', 10);
+    const q = ((req.query.q as string) || '').trim();
+
+    const conditions: string[] = ["phone_number LIKE '%@g.us'"];
+    const params: any[] = [];
+
+    if (q) {
+      conditions.push("(name LIKE ? OR phone_number LIKE ?)");
+      params.push(`%${q}%`, `%${q}%`);
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const [rows] = await db.query(
       `SELECT * FROM wa_contacts 
-       WHERE phone_number LIKE '%@g.us' 
+       ${whereClause} 
        ORDER BY name ASC 
        LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [...params, limit, offset]
     );
 
-    const [countRows] = await db.query("SELECT COUNT(*) as total FROM wa_contacts WHERE phone_number LIKE '%@g.us'");
+    const [countRows] = await db.query(`SELECT COUNT(*) as total FROM wa_contacts ${whereClause}`, params);
     const total = (countRows as any[])[0].total;
 
     res.json({ success: true, data: rows, meta: { total, limit, offset } });

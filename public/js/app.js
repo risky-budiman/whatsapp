@@ -236,8 +236,14 @@ function loadView(viewId) {
   // Load data based on view
   if (viewId === 'dashboard') renderDashboard();
   if (viewId === 'sessions') renderSessions();
-  if (viewId === 'contacts') renderContacts();
-  if (viewId === 'groups') renderGroups();
+  if (viewId === 'contacts') {
+    contactOffset = 0;
+    renderContacts();
+  }
+  if (viewId === 'groups') {
+    groupOffset = 0;
+    renderGroups();
+  }
   if (viewId === 'campaigns') renderCampaigns();
   if (viewId === 'logs') renderMessageLogs();
   if (viewId === 'users') renderUsers();
@@ -888,27 +894,37 @@ let cachedContacts = [];
 let cachedGroups = [];
 let contactOffset = 0;
 const contactLimit = 25;
+let contactSearchTimeout = null;
+let groupSearchTimeout = null;
 
 async function renderContacts() {
   const tbody = document.getElementById('contacts-tbody');
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data...</td></tr>`;
   
   try {
     const typeSelect = document.getElementById('filter-contact-type');
     const selectedType = typeSelect ? typeSelect.value : 'all';
+    const searchQuery = (document.getElementById('search-contacts')?.value || '').trim();
 
-    const res = await wa_api.contacts.list({ limit: contactLimit, offset: contactOffset, type: selectedType });
+    const res = await wa_api.contacts.list({ 
+      limit: contactLimit, 
+      offset: contactOffset, 
+      type: selectedType,
+      q: searchQuery 
+    });
     cachedContacts = res.data;
     const total = res.meta.total;
     
     displayContacts(cachedContacts);
     
     // Update pagination UI
-    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${contactOffset + 1} - ${Math.min(contactOffset + contactLimit, total)} dari ${total} data`;
+    const startNum = total === 0 ? 0 : contactOffset + 1;
+    const endNum = Math.min(contactOffset + contactLimit, total);
+    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} data`;
     document.getElementById('btn-prev-contact').disabled = contactOffset === 0;
     document.getElementById('btn-next-contact').disabled = (contactOffset + contactLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -1026,21 +1042,11 @@ function handleCampaignTargetChange(val) {
 }
 
 function filterContacts() {
-  const query = (document.getElementById('search-contacts')?.value || '').toLowerCase();
-  const typeSelect = document.getElementById('filter-contact-type');
-  const selectedType = typeSelect ? typeSelect.value : 'all';
-
-  const filtered = cachedContacts.filter(c => {
-    const isGroup = c.phone_number && c.phone_number.endsWith('@g.us');
-    if (selectedType === 'personal' && isGroup) return false;
-    if (selectedType === 'group' && !isGroup) return false;
-
-    return (
-      (c.name && c.name.toLowerCase().includes(query)) || 
-      c.phone_number.includes(query)
-    );
-  });
-  displayContacts(filtered);
+  clearTimeout(contactSearchTimeout);
+  contactSearchTimeout = setTimeout(() => {
+    contactOffset = 0; // Reset ke halaman pertama saat mencari atau ganti filter
+    renderContacts();
+  }, 350);
 }
 
 let groupOffset = 0;
@@ -1048,21 +1054,28 @@ const groupLimit = 25;
 
 async function renderGroups() {
   const tbody = document.getElementById('groups-tbody');
-  tbody.innerHTML = `<tr><td colspan="4" class="text-center">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data grup...</td></tr>`;
   
   try {
-    const res = await wa_api.contacts.listGroups({ limit: groupLimit, offset: groupOffset });
+    const searchQuery = (document.getElementById('search-groups')?.value || '').trim();
+    const res = await wa_api.contacts.listGroups({ 
+      limit: groupLimit, 
+      offset: groupOffset,
+      q: searchQuery 
+    });
     cachedGroups = res.data;
     const total = res.meta.total;
 
     displayGroups(cachedGroups);
 
     // Update pagination UI
-    document.getElementById('group-pagination-info').innerText = `Menampilkan ${groupOffset + 1} - ${Math.min(groupOffset + groupLimit, total)} dari ${total} grup`;
+    const startNum = total === 0 ? 0 : groupOffset + 1;
+    const endNum = Math.min(groupOffset + groupLimit, total);
+    document.getElementById('group-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} grup`;
     document.getElementById('btn-prev-group').disabled = groupOffset === 0;
     document.getElementById('btn-next-group').disabled = (groupOffset + groupLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -1075,7 +1088,7 @@ function changeGroupPage(dir) {
 function displayGroups(groups) {
   const tbody = document.getElementById('groups-tbody');
   if (groups.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
     return;
   }
 
@@ -1094,18 +1107,20 @@ function displayGroups(groups) {
         </td>
         <td><span class="badge active">Active</span></td>
         <td><span class="badge" style="font-size:0.7rem">${g.source}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline" title="Kirim Pesan ke Grup" onclick="openDirectMessageModal('${g.phone_number}')"><i class="fa-solid fa-paper-plane"></i></button>
+        </td>
       </tr>
     `;
   }).join('');
 }
 
 function filterGroups() {
-  const query = document.getElementById('search-groups').value.toLowerCase();
-  const filtered = cachedGroups.filter(g => 
-    (g.name && g.name.toLowerCase().includes(query)) || 
-    g.phone_number.includes(query)
-  );
-  displayGroups(filtered);
+  clearTimeout(groupSearchTimeout);
+  groupSearchTimeout = setTimeout(() => {
+    groupOffset = 0; // Reset ke halaman pertama saat mencari grup
+    renderGroups();
+  }, 350);
 }
 
 
