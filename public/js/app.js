@@ -899,17 +899,16 @@ let groupSearchTimeout = null;
 
 async function renderContacts() {
   const tbody = document.getElementById('contacts-tbody');
-  tbody.innerHTML = `<tr><td colspan="8" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data...</td></tr>`;
   
   try {
-    const typeSelect = document.getElementById('filter-contact-type');
-    const selectedType = typeSelect ? typeSelect.value : 'all';
     const searchQuery = (document.getElementById('search-contacts')?.value || '').trim();
 
+    // Menu Kontak Pribadi selalu mengambil kontak personal saja (bukan grup)
     const res = await wa_api.contacts.list({ 
       limit: contactLimit, 
       offset: contactOffset, 
-      type: selectedType,
+      type: 'personal',
       q: searchQuery 
     });
     cachedContacts = res.data;
@@ -920,11 +919,11 @@ async function renderContacts() {
     // Update pagination UI
     const startNum = total === 0 ? 0 : contactOffset + 1;
     const endNum = Math.min(contactOffset + contactLimit, total);
-    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} data`;
+    document.getElementById('contact-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} kontak`;
     document.getElementById('btn-prev-contact').disabled = contactOffset === 0;
     document.getElementById('btn-next-contact').disabled = (contactOffset + contactLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -937,25 +936,14 @@ function changeContactPage(dir) {
 function displayContacts(contacts) {
   const tbody = document.getElementById('contacts-tbody');
   if (contacts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak atau Grup</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
     return;
   }
 
   tbody.innerHTML = contacts.map((c, index) => {
-    const isGroup = c.phone_number && c.phone_number.endsWith('@g.us');
     const displayName = c.name && c.name !== '' ? c.name : c.phone_number.split('@')[0];
     const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
     const tagHtml = tags.map(t => `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--info); font-size: 0.65rem; margin-right: 4px;">${t}</span>`).join('');
-    
-    const typeBadge = isGroup ? `
-      <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: var(--primary); font-size: 0.72rem; font-weight: 600;">
-        <i class="fa-solid fa-users" style="margin-right: 4px;"></i> Grup
-      </span>
-    ` : `
-      <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); font-size: 0.72rem; font-weight: 600;">
-        <i class="fa-solid fa-user" style="margin-right: 4px;"></i> Personal
-      </span>
-    `;
 
     return `
       <tr>
@@ -963,7 +951,6 @@ function displayContacts(contacts) {
         <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-name="${displayName}"></td>
         <td><strong>${displayName}</strong></td>
         <td>${c.phone_number.split('@')[0]}</td>
-        <td>${typeBadge}</td>
         <td>${tagHtml || '-'}</td>
         <td><span class="badge" style="font-size:0.7rem">${c.source}</span></td>
         <td>

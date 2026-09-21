@@ -281,12 +281,7 @@
         <h1>Kontak Pribadi</h1>
         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="search-contacts" class="form-control" placeholder="Cari nama atau nomor..."
-            onkeyup="filterContacts()" style="width: 220px; margin-bottom: 0;">
-          <select id="filter-contact-type" class="form-control" onchange="filterContacts()" style="width: 150px; margin-bottom: 0;">
-            <option value="personal" selected>Personal Saja</option>
-            <option value="all">Semua Data</option>
-            <option value="group">Hanya Grup</option>
-          </select>
+            onkeyup="filterContacts()" style="width: 250px; margin-bottom: 0;">
           <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
           </button>
@@ -305,7 +300,6 @@
                   onclick="toggleSelectAllContacts(this)"></th>
               <th>Nama</th>
               <th>Nomor HP</th>
-              <th>Tipe</th>
               <th>Tag</th>
               <th>Sumber</th>
               <th>Aksi</th>
