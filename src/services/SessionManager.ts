@@ -19,7 +19,16 @@ import { logger } from '../utils/logger';
 import QRCode from 'qrcode';
 
 const AUTH_DIR = path.join(process.cwd(), 'wa_auth');
-let cachedBaileysVersion: [number, number, number] | null = null;
+
+// Default to stable modern WhatsApp Web protocol version, updated asynchronously in background
+let cachedBaileysVersion: [number, number, number] = [2, 3000, 1043857760];
+
+// Fetch newest version in background without delaying socket initialization
+fetchLatestBaileysVersion()
+  .then((res) => {
+    if (res?.version) cachedBaileysVersion = res.version;
+  })
+  .catch(() => {});
 
 export interface SessionInfo {
   id: string;
@@ -138,17 +147,7 @@ export class SessionManager extends EventEmitter {
 
       const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
 
-      // Cache version to avoid repeating external HTTP network calls on every connect
-      let version = cachedBaileysVersion;
-      if (!version) {
-        try {
-          const fetched = await fetchLatestBaileysVersion();
-          version = fetched.version;
-          cachedBaileysVersion = version;
-        } catch (e) {
-          version = [2, 3000, 1043857760]; // Up-to-date fallback version
-        }
-      }
+      const version = cachedBaileysVersion;
 
       let dailySentCount = sessionDb.daily_sent_count || 0;
       const lastSentAt = sessionDb.last_sent_at ? new Date(sessionDb.last_sent_at) : null;
@@ -206,9 +205,9 @@ export class SessionManager extends EventEmitter {
           info.qr = qr;
           try {
             const qrDataUrl = await QRCode.toDataURL(qr, {
-              version: 15,
-              errorCorrectionLevel: 'L',
               margin: 2,
+              width: 280,
+              errorCorrectionLevel: 'M',
             });
             this.emit('qr.updated', { sessionId, qr: qrDataUrl });
           } catch (err) {
