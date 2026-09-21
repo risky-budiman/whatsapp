@@ -582,34 +582,59 @@ async function renderDashboard() {
       console.warn("Gagal mengambil data health:", e);
     }
 
-    // Recent Logs
-    const logRes = await wa_api.chats.getLogs({ limit: 5 });
+    // Recent Logs (Fetch latest 6)
+    const logRes = await wa_api.chats.getLogs({ limit: 6 });
     const tbody = document.getElementById('dash-recent-logs');
     
-    if (logRes.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Belum ada aktivitas</td></tr>`;
+    if (!logRes.data || logRes.data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted" style="padding: 25px;">Belum ada aktivitas pengiriman</td></tr>`;
     } else {
-      tbody.innerHTML = logRes.data.map(l => {
-        const time = new Date(l.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        const statusClass = l.status || 'sent';
+      // Store in cachedLogs as well so openLogDetailModal can locate them
+      const recentLogs = logRes.data;
+      recentLogs.forEach(rl => {
+        if (!cachedLogs.find(x => x.id === rl.id)) {
+          cachedLogs.push(rl);
+        }
+      });
+
+      tbody.innerHTML = recentLogs.map((l, idx) => {
+        const time = l.created_at ? new Date(l.created_at).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: 'short' }) : '-';
+        
+        let statusHtml = '';
+        if (l.status === 'sent') {
+          statusHtml = `<span class="status-badge sent" style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-weight: 600;"><i class="fa-solid fa-check"></i> SENT</span>`;
+        } else if (l.status === 'delivered') {
+          statusHtml = `<span class="status-badge delivered" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; font-weight: 600;"><i class="fa-solid fa-check-double"></i> DELIVERED</span>`;
+        } else if (l.status === 'read') {
+          statusHtml = `<span class="status-badge read" style="background: rgba(52, 183, 241, 0.1); color: #34b7f1; font-weight: 600;"><i class="fa-solid fa-check-double"></i> READ</span>`;
+        } else if (l.status === 'failed') {
+          statusHtml = `<span class="status-badge failed" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-weight: 600;" title="${l.error || 'Gagal'}"><i class="fa-solid fa-triangle-exclamation"></i> FAILED</span>`;
+        } else {
+          statusHtml = `<span class="status-badge received">${(l.status || '').toUpperCase()}</span>`;
+        }
+
         const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
         const displayTo = l.contact_name ? `${l.contact_name} (${phone})` : phone;
         
         return `
           <tr>
-            <td>${displayTo}</td>
-            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.message_content || ''}">${l.message_content}</td>
-            <td>${time}</td>
-            <td><span class="status-badge ${statusClass}">${l.status.toUpperCase()}</span></td>
-            <td>
-              <div style="display: flex; gap: 8px;">
+            <td>${idx + 1}</td>
+            <td><strong>${displayTo}</strong></td>
+            <td class="cell-message" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;" onclick="openLogDetailModal('${l.id}')" title="Klik untuk lihat detail pesan">
+              ${l.message_content || '<span class="text-muted">[Kosong]</span>'}
+            </td>
+            <td><span class="badge secondary" style="font-size: 0.7rem; font-weight: 600;">${l.session_name || 'System'}</span></td>
+            <td style="font-size: 0.8rem;">${time}</td>
+            <td>${statusHtml}</td>
+            <td class="actions-cell">
+              <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <button class="btn btn-sm btn-outline" onclick="openLogDetailModal('${l.id}')" title="Lihat Detail Pesan">
+                  <i class="fa-solid fa-eye"></i> Detail
+                </button>
                 ${l.status === 'failed' ? `
-                <button class="btn-icon" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang">
+                <button class="btn btn-sm btn-warning" onclick="resendLogMessage('${l.id}')" title="Kirim Ulang Pesan Ini">
                   <i class="fa-solid fa-rotate"></i>
                 </button>` : ''}
-                <button class="btn-icon danger" onclick="deleteMessageLog('${l.id}')" title="Hapus">
-                  <i class="fa-solid fa-trash"></i>
-                </button>
               </div>
             </td>
           </tr>

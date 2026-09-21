@@ -230,18 +230,25 @@
 
       <div class="mt-4" style="margin-top: 30px;">
         <div class="header" style="margin-bottom: 15px;">
-          <h2 style="font-size: 1.2rem;">Aktivitas Pengiriman Terakhir</h2>
-          <button class="btn btn-sm btn-outline" onclick="loadView('logs')">Lihat Semua</button>
+          <div>
+            <h2 style="font-size: 1.2rem; margin-bottom: 4px;">Aktivitas Pengiriman Terakhir</h2>
+            <p class="text-muted" style="font-size: 0.8rem; margin: 0;">Pantauan langsung 6 pesan terbaru yang dikirimkan sistem</p>
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="loadView('logs')">
+            <i class="fa-solid fa-list-check" style="margin-right: 4px;"></i> Lihat Semua Riwayat
+          </button>
         </div>
         <div class="table-container">
           <table>
             <thead>
               <tr>
-                <th>Tujuan</th>
-                <th>Pesan</th>
+                <th style="width: 40px;">No</th>
+                <th>Penerima</th>
+                <th>Isi Pesan</th>
+                <th>Device</th>
                 <th>Waktu</th>
                 <th>Status</th>
-                <th>Aksi</th>
+                <th style="text-align: right;">Aksi</th>
               </tr>
             </thead>
             <tbody id="dash-recent-logs">
