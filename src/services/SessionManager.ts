@@ -82,23 +82,34 @@ export class SessionManager extends EventEmitter {
 
   async connectSession(sessionId: string, name: string): Promise<SessionInfo> {
     const existing = this.sessions.get(sessionId);
-    if (existing && existing.info.status === 'active') {
-      logger.info(`[${name}] Sesi sudah aktif. Mengabaikan permintaan koneksi baru.`);
-      return existing.info;
+    if (existing) {
+      // If already connected and active, return directly
+      if (existing.info.status === 'active') {
+        logger.info(`[${name}] Sesi sudah aktif. Mengabaikan permintaan koneksi baru.`);
+        return existing.info;
+      }
+
+      // If already in 'qr' or 'connecting' state with active QR, do NOT destroy the socket!
+      // Destroying the socket or wiping keys while the user is scanning causes:
+      // "Tidak bisa login. Periksa kembali internet telepon lalu pindai kode qr lagi"
+      if (existing.info.qr || existing.info.status === 'qr' || existing.info.status === 'connecting') {
+        logger.info(`[${name}] Sesi sudah dalam proses pairing / QR sudah siap. Mempertahankan koneksi socket aktif.`);
+        return existing.info;
+      }
+
+      // If disconnected/failed, cleanup old listeners and socket
+      try {
+        existing.client.ev.removeAllListeners('connection.update');
+        existing.client.ev.removeAllListeners('messages.upsert');
+        existing.client.ev.removeAllListeners('messages.update');
+        existing.client.ev.removeAllListeners('creds.update');
+        existing.client.ws.close();
+      } catch (e) {}
+      this.sessions.delete(sessionId);
     }
 
     try {
       logger.info(`[DEBUG] Memulai Baileys socket untuk: ${sessionId} (${name})`);
-
-      if (existing) {
-        try {
-          existing.client.ev.removeAllListeners('connection.update');
-          existing.client.ev.removeAllListeners('messages.upsert');
-          existing.client.ev.removeAllListeners('messages.update');
-          existing.client.ws.close();
-        } catch (e) {}
-        this.sessions.delete(sessionId);
-      }
 
       const sessionFolder = path.join(AUTH_DIR, `baileys_${sessionId}`);
       const credsFile = path.join(sessionFolder, 'creds.json');
@@ -110,8 +121,8 @@ export class SessionManager extends EventEmitter {
       );
       const sessionDb = rows[0] || {};
 
-      // If connecting a session that is NOT already active, wipe old creds so WhatsApp generates a fresh QR immediately without handshake hangs
-      if (sessionDb.status !== 'active') {
+      // If credentials do not exist or session is completely disconnected without saved creds, wipe to start fresh
+      if (sessionDb.status !== 'active' && !fs.existsSync(credsFile)) {
         if (fs.existsSync(sessionFolder)) {
           try {
             fs.rmSync(sessionFolder, { recursive: true, force: true });
@@ -135,7 +146,7 @@ export class SessionManager extends EventEmitter {
           version = fetched.version;
           cachedBaileysVersion = version;
         } catch (e) {
-          version = [2, 3000, 1015901307]; // Safe Baileys web version fallback
+          version = [2, 3000, 1043857760]; // Up-to-date fallback version
         }
       }
 
@@ -167,10 +178,10 @@ export class SessionManager extends EventEmitter {
         browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
-        connectTimeoutMs: 30000,
-        keepAliveIntervalMs: 20000,
-        defaultQueryTimeoutMs: 30000,
-        markOnlineOnConnect: false,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
+        defaultQueryTimeoutMs: 60000,
+        markOnlineOnConnect: true,
       });
 
       const activeSession: ActiveSession = {
