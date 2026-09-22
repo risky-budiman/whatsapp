@@ -6,6 +6,7 @@ import { getAntiBanEngine } from '../services/AntiBanEngine';
 import { getDb } from '../config/database';
 import { logger } from '../utils/logger';
 import { toWhatsAppJid } from '../utils/phone';
+import { v4 as uuidv4 } from 'uuid';
 
 let messageWorker: Worker;
 
@@ -20,7 +21,7 @@ export function initWorker(): void {
   messageWorker = new Worker(
     MESSAGE_QUEUE_NAME,
     async (job: Job) => {
-      const { messageId, campaignId, targetPhone, messageContent } = job.data;
+      const { messageId, campaignId, sessionId: requestedSessionId, targetPhone, messageContent } = job.data;
       const db = getDb();
       const sm = getSessionManager();
       const antiBan = getAntiBanEngine();
@@ -36,11 +37,32 @@ export function initWorker(): void {
           );
         }
 
-        // 2. Get next available session (Rotates automatically & checks daily limit)
-        const session = sm.getBestSession();
-        if (!session) {
+        // 2. Get next available session (Specific requested session OR best active session with rotation)
+        let activeSession = null;
+        let selectedSessionId: string | null = null;
+        let selectedSessionName: string = 'WhatsApp';
+
+        if (requestedSessionId && requestedSessionId !== 'auto' && requestedSessionId !== 'string') {
+          activeSession = sm.getSession(requestedSessionId);
+          if (activeSession && activeSession.info.status === 'active') {
+            selectedSessionId = activeSession.info.id;
+            selectedSessionName = activeSession.info.name;
+          }
+        }
+        if (!selectedSessionId) {
+          const best = sm.getBestSession();
+          if (best) {
+            selectedSessionId = best.id;
+            selectedSessionName = best.name;
+          }
+        }
+
+        if (!selectedSessionId) {
           throw new Error('No active sessions available or daily limits reached');
         }
+
+        const sessionId = selectedSessionId;
+        const sessionName = selectedSessionName;
 
         // 3. Apply Rest Logic (Check if we need to rest because batch limit reached)
         // Note: For now using default env values, later can be overwritten by campaign config
@@ -50,14 +72,15 @@ export function initWorker(): void {
         const jid = toWhatsAppJid(targetPhone);
 
         // 5. Send Message (This handles Typing Simulation internally)
-        const success = await sm.sendMessage(session.id, jid, messageContent);
+        const result: any = await sm.sendMessage(sessionId, jid, messageContent);
+        const waMessageId = result?.id?._serialized || result?.id?.id || null;
 
         // 6. Log success and update DB
         if (campaignId) {
           // Update message status
           await db.query(
             "UPDATE wa_campaign_messages SET status = 'sent', sent_at = NOW(), session_id = ? WHERE id = ?",
-            [session.id, messageId]
+            [sessionId, messageId]
           );
 
           // Update campaign counters
@@ -81,12 +104,20 @@ export function initWorker(): void {
           }
         }
 
+        // Record in wa_chats for Live Chat UI and wa_message_logs for history
+        const chatId = messageId || uuidv4();
+        await db.query(`
+          INSERT INTO wa_chats (id, session_id, phone_number, message_id, message_text, is_from_me, status)
+          VALUES (?, ?, ?, ?, ?, true, 'sent')
+          ON DUPLICATE KEY UPDATE status = 'sent', message_id = VALUES(message_id)
+        `, [chatId, sessionId, targetPhone, waMessageId, messageContent]);
+
         await db.query(
-          "INSERT INTO wa_message_logs (id, session_id, campaign_id, target_phone, message_content, direction, status) VALUES (UUID(), ?, ?, ?, ?, 'outgoing', 'sent')",
-          [session.id, campaignId || null, targetPhone, messageContent]
+          "INSERT INTO wa_message_logs (id, session_id, campaign_id, target_phone, message_content, direction, status, metadata) VALUES (UUID(), ?, ?, ?, ?, 'outgoing', 'sent', ?)",
+          [sessionId, campaignId || null, targetPhone, messageContent, JSON.stringify({ waMessageId })]
         );
 
-        logger.info(`✅ Sent message ${messageId} via ${session.name}`);
+        logger.info(`✅ Sent message ${messageId} via ${sessionName}`);
 
         // 7. Apply random delay BEFORE processing the next message in queue
         await antiBan.applyJitter();

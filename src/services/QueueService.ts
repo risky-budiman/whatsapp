@@ -65,6 +65,7 @@ export function getMessageQueue(): Queue {
 export async function queueMessage(data: {
   messageId: string;
   campaignId?: string;
+  sessionId?: string;
   targetPhone: string;
   messageContent: string;
 }): Promise<void> {

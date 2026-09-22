@@ -355,6 +355,37 @@ router.get('/:id/progress', async (req: Request, res: Response) => {
  *       200:
  *         description: Campaign deleted successfully
  */
+// POST /api/campaigns/bulk-delete — Delete selected campaigns
+router.post('/bulk-delete', async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of ids is required' });
+    }
+    const db = getDb();
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(`DELETE FROM wa_campaign_messages WHERE campaign_id IN (${placeholders})`, ids);
+    await db.query(`DELETE FROM wa_campaigns WHERE id IN (${placeholders})`, ids);
+    res.json({ success: true, message: `${ids.length} campaign berhasil dihapus` });
+  } catch (err: any) {
+    logger.error(`Error bulk deleting campaigns: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to bulk delete campaigns' });
+  }
+});
+
+// DELETE /api/campaigns/all — Delete all campaigns
+router.delete('/all', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    await db.query('DELETE FROM wa_campaign_messages');
+    await db.query('DELETE FROM wa_campaigns');
+    res.json({ success: true, message: 'Semua campaign berhasil dihapus' });
+  } catch (err: any) {
+    logger.error(`Error deleting all campaigns: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to delete all campaigns' });
+  }
+});
+
 // DELETE /api/campaigns/:id — Delete campaign
 router.delete('/:id', async (req: Request, res: Response) => {
   try {

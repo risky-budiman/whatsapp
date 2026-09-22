@@ -360,6 +360,47 @@ router.patch('/:id', async (req: Request, res: Response) => {
  *       200:
  *         description: Session deleted
  */
+// POST /api/sessions/bulk-delete — Delete multiple sessions
+router.post('/bulk-delete', async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of ids is required' });
+    }
+    const sm = getSessionManager();
+    for (const id of ids) {
+      try {
+        await sm.deleteSession(id);
+      } catch (e: any) {
+        logger.error(`Error deleting session ${id}: ${e.message}`);
+      }
+    }
+    res.json({ success: true, message: `${ids.length} sesi berhasil dihapus` });
+  } catch (err: any) {
+    logger.error(`POST /sessions/bulk-delete error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/sessions/all — Delete all sessions
+router.delete('/all', async (req: Request, res: Response) => {
+  try {
+    const sm = getSessionManager();
+    const sessions = await sm.getAllSessionsFromDb();
+    for (const s of sessions) {
+      try {
+        await sm.deleteSession(s.id);
+      } catch (e: any) {
+        logger.error(`Error deleting session ${s.id}: ${e.message}`);
+      }
+    }
+    res.json({ success: true, message: 'Semua sesi berhasil dihapus' });
+  } catch (err: any) {
+    logger.error(`DELETE /sessions/all error: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // DELETE /api/sessions/:id — Delete session
 router.delete('/:id', async (req: Request, res: Response) => {
   try {

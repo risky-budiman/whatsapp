@@ -4,6 +4,8 @@ import { getSessionManager } from '../../services/SessionManager';
 import { logger } from '../../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { toWhatsAppJid } from '../../utils/phone';
+import { queueMessage } from '../../services/QueueService';
+import { getAntiBanEngine } from '../../services/AntiBanEngine';
 
 const router = Router();
 const chatClients: Set<Response> = new Set();
@@ -296,10 +298,10 @@ router.get('/send-message', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/chats/send-message — Send message via POST (Supports multiple numbers)
+// POST /api/chats/send-message — Send message via POST (Supports multiple numbers with queue & anti-ban protection)
 router.post('/send-message', async (req: Request, res: Response) => {
   try {
-    const { phone, phones, message, sessionId } = req.body;
+    const { phone, phones, message, sessionId, queue: forceQueue } = req.body;
 
     let targetPhones: string[] = [];
     if (phones && Array.isArray(phones)) {
@@ -313,9 +315,51 @@ router.post('/send-message', async (req: Request, res: Response) => {
     }
 
     const sm = getSessionManager();
+    const db = getDb();
     let finalSessionId = sessionId as string;
 
-    // Auto-select best session if not provided
+    // Check if queue should be used:
+    // If sending to > 1 number OR forceQueue is set to true, use queue to protect from Meta suspension
+    const shouldQueue = targetPhones.length > 1 || forceQueue === true;
+
+    if (shouldQueue) {
+      let queuedViaRedis = false;
+      const queueJobIds: string[] = [];
+
+      try {
+        for (const p of targetPhones) {
+          const msgId = uuidv4();
+          await queueMessage({
+            messageId: msgId,
+            sessionId: finalSessionId || undefined,
+            targetPhone: p,
+            messageContent: message
+          });
+          queueJobIds.push(msgId);
+        }
+        queuedViaRedis = true;
+      } catch (queueErr: any) {
+        logger.warn(`[SEND_MESSAGE] Redis queue not available, falling back to throttled direct sending: ${queueErr.message}`);
+        queuedViaRedis = false;
+      }
+
+      if (queuedViaRedis) {
+        logger.info(`📦 Enqueued ${targetPhones.length} messages into Anti-Ban Queue safely`);
+        return res.json({
+          success: true,
+          status: 'queued',
+          message: `Berhasil memasukkan ${targetPhones.length} nomor ke dalam antrean pengiriman anti-ban (delay jitter & rotasi sesi otomatis)`,
+          data: {
+            total: targetPhones.length,
+            queued: true,
+            jobIds: queueJobIds
+          }
+        });
+      }
+    }
+
+    // Single message OR Fallback if Redis is not running:
+    // Direct send with anti-ban jitter between numbers to prevent suspension
     if (!finalSessionId || finalSessionId === 'auto' || finalSessionId === 'string') {
       finalSessionId = sm.getBestSession()?.id as string;
       if (!finalSessionId) {
@@ -328,10 +372,11 @@ router.post('/send-message', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Session not found or not initialized' });
     }
 
-    const db = getDb();
+    const antiBan = getAntiBanEngine();
     const results = [];
 
-    for (const p of targetPhones) {
+    for (let i = 0; i < targetPhones.length; i++) {
+      const p = targetPhones[i];
       try {
         const targetJid = toWhatsAppJid(p);
         const result = await sm.sendMessage(finalSessionId, targetJid, message);
@@ -362,6 +407,11 @@ router.post('/send-message', async (req: Request, res: Response) => {
         });
 
         results.push({ phone: p, success: true, messageId: waMessageId });
+
+        // If sending to multiple numbers directly without queue, apply jitter delay between numbers
+        if (targetPhones.length > 1 && i < targetPhones.length - 1) {
+          await antiBan.applyJitter();
+        }
       } catch (err: any) {
         results.push({ phone: p, success: false, error: err.message });
       }
@@ -560,6 +610,33 @@ router.delete('/message/:id', async (req: Request, res: Response) => {
     const db = getDb();
     await db.query('DELETE FROM wa_chats WHERE id = ?', [id]);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/chats/logs/bulk-delete — Delete selected message logs by IDs
+router.post('/logs/bulk-delete', async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of ids is required' });
+    }
+    const db = getDb();
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(`DELETE FROM wa_message_logs WHERE id IN (${placeholders})`, ids);
+    res.json({ success: true, message: `${ids.length} riwayat pesan berhasil dihapus` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/chats/logs/all — Delete all message logs
+router.delete('/logs/all', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    await db.query('DELETE FROM wa_message_logs');
+    res.json({ success: true, message: 'Semua riwayat pesan berhasil dihapus' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

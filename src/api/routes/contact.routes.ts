@@ -259,6 +259,40 @@ router.get('/groups', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/contacts/bulk-delete — Delete selected contacts by IDs
+router.post('/bulk-delete', async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of ids is required' });
+    }
+    const db = getDb();
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(`DELETE FROM wa_contacts WHERE id IN (${placeholders})`, ids);
+    res.json({ success: true, message: `${ids.length} kontak berhasil dihapus` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/contacts/all — Delete all contacts (optionally filter by type)
+router.delete('/all', async (req: Request, res: Response) => {
+  try {
+    const type = req.query.type as string; // 'personal', 'group', or 'all'
+    const db = getDb();
+    if (type === 'group') {
+      await db.query("DELETE FROM wa_contacts WHERE phone_number LIKE '%@g.us'");
+    } else if (type === 'personal') {
+      await db.query("DELETE FROM wa_contacts WHERE phone_number NOT LIKE '%@g.us'");
+    } else {
+      await db.query('DELETE FROM wa_contacts');
+    }
+    res.json({ success: true, message: 'Semua kontak berhasil dihapus' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // DELETE /api/contacts/:id — Delete contact
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
@@ -272,3 +306,4 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 export default router;
+

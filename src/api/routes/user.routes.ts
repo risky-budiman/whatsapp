@@ -133,6 +133,43 @@ router.patch('/:id', isAdmin, async (req: Request, res: Response) => {
  *     summary: Delete user (Admin only)
  *     tags: [Users]
  */
+// POST /api/users/bulk-delete — Delete selected users (Admin only)
+router.post('/bulk-delete', isAdmin, async (req: Request, res: Response) => {
+  const { ids } = req.body;
+  const currentUserId = (req as any).userId;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ success: false, message: 'Array of ids is required' });
+  }
+
+  // Filter out self
+  const targetIds = ids.filter((id: string) => id !== currentUserId);
+  if (targetIds.length === 0) {
+    return res.status(400).json({ success: false, message: 'Tidak dapat menghapus akun Anda sendiri' });
+  }
+
+  try {
+    const db = getDb();
+    const placeholders = targetIds.map(() => '?').join(',');
+    await db.query(`DELETE FROM wa_users WHERE id IN (${placeholders})`, targetIds);
+    res.json({ success: true, message: `${targetIds.length} user berhasil dihapus` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/users/all — Delete all users except self & admin (Admin only)
+router.delete('/all', isAdmin, async (req: Request, res: Response) => {
+  const currentUserId = (req as any).userId;
+  try {
+    const db = getDb();
+    await db.query("DELETE FROM wa_users WHERE id != ? AND username != 'admin'", [currentUserId]);
+    res.json({ success: true, message: 'Semua user (kecuali admin/akun sendiri) berhasil dihapus' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.delete('/:id', isAdmin, async (req: Request, res: Response) => {
   const { id } = req.params;
   const currentUserId = (req as any).userId;

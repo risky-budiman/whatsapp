@@ -295,10 +295,86 @@ let logOffset = 0;
 const logLimit = 50;
 let cachedLogs = [];
 let logSearchTimeout = null;
+let selectedLogs = new Set();
+
+function updateLogsBulkBar() {
+  const bar = document.getElementById('logs-bulk-bar');
+  const countSpan = document.getElementById('logs-selected-count');
+  const selectAll = document.getElementById('select-all-logs');
+  if (!bar || !countSpan) return;
+  if (selectedLogs.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedLogs.size} pesan terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+  if (selectAll && cachedLogs.length > 0) {
+    selectAll.checked = cachedLogs.every(l => selectedLogs.has(l.id));
+  }
+}
+
+function clearLogsSelection() {
+  selectedLogs.clear();
+  document.querySelectorAll('.log-checkbox').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('select-all-logs');
+  if (selectAll) selectAll.checked = false;
+  updateLogsBulkBar();
+}
+
+function toggleLogSelection(id, checked) {
+  if (checked) {
+    selectedLogs.add(id);
+  } else {
+    selectedLogs.delete(id);
+  }
+  updateLogsBulkBar();
+}
+
+function toggleSelectAllLogs(source) {
+  cachedLogs.forEach(l => {
+    if (source.checked) {
+      selectedLogs.add(l.id);
+    } else {
+      selectedLogs.delete(l.id);
+    }
+  });
+  document.querySelectorAll('.log-checkbox').forEach(cb => cb.checked = source.checked);
+  updateLogsBulkBar();
+}
+
+async function deleteSelectedLogs() {
+  const ids = Array.from(selectedLogs);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} riwayat pesan terpilih?`, 'Hapus Riwayat Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.chats.bulkDeleteLogs(ids);
+    clearLogsSelection();
+    renderMessageLogs();
+    if (activeView === 'dashboard') renderDashboard();
+    showToast(res.message || `${ids.length} riwayat pesan berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus log: " + err.message, "error");
+  }
+}
+
+async function confirmDeleteAllLogs() {
+  const confirmed = await showConfirm('Apakah Anda yakin ingin menghapus SELURUH riwayat pesan terkirim? Tindakan ini tidak dapat dibatalkan.', 'Hapus Semua Riwayat', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.chats.deleteAllLogs();
+    clearLogsSelection();
+    renderMessageLogs();
+    if (activeView === 'dashboard') renderDashboard();
+    showToast(res.message || "Semua riwayat pesan berhasil dihapus", "success");
+  } catch (err) {
+    showToast("Gagal menghapus semua log: " + err.message, "error");
+  }
+}
 
 async function renderMessageLogs() {
   const tbody = document.getElementById('logs-tbody');
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat riwayat...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat riwayat...</td></tr>`;
   
   try {
     const searchQuery = (document.getElementById('search-logs')?.value || '').trim();
@@ -316,10 +392,11 @@ async function renderMessageLogs() {
     const total = (res.meta && typeof res.meta.total !== 'undefined') ? res.meta.total : logs.length;
 
     if (logs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada riwayat pesan yang sesuai</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Belum ada riwayat pesan yang sesuai</td></tr>`;
       document.getElementById('log-pagination-info').innerText = `Menampilkan 0 dari 0 pesan`;
       document.getElementById('btn-prev-log').disabled = true;
       document.getElementById('btn-next-log').disabled = true;
+      updateLogsBulkBar();
       return;
     }
 
@@ -341,10 +418,12 @@ async function renderMessageLogs() {
 
       const phone = l.target_phone ? l.target_phone.split('@')[0] : '';
       const displayTo = l.contact_name ? `${l.contact_name} (${phone})` : phone;
+      const isChecked = selectedLogs.has(l.id) ? 'checked' : '';
 
       return `
         <tr>
           <td>${logOffset + index + 1}</td>
+          <td><input type="checkbox" class="log-checkbox" value="${l.id}" ${isChecked} onchange="toggleLogSelection('${l.id}', this.checked)"></td>
           <td><strong>${displayTo}</strong></td>
           <td class="cell-message" style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;" onclick="openLogDetailModal('${l.id}')" title="Klik untuk lihat detail pesan">
             ${l.message_content || '<span class="text-muted">[Kosong]</span>'}
@@ -376,8 +455,10 @@ async function renderMessageLogs() {
     document.getElementById('log-pagination-info').innerText = `Menampilkan ${startNum} - ${endNum} dari ${total} pesan`;
     document.getElementById('btn-prev-log').disabled = logOffset === 0;
     document.getElementById('btn-next-log').disabled = (logOffset + logLimit) >= total;
+
+    updateLogsBulkBar();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state text-danger">Gagal memuat log: ${err.message}</td></tr>`;
   }
 }
 
@@ -657,6 +738,64 @@ async function renderDashboard() {
 
 // ─── SESSIONS MANAGEMENT ───
 let qrEventSource = null;
+let selectedSessions = new Set();
+
+function updateSessionsBulkBar() {
+  const bar = document.getElementById('sessions-bulk-bar');
+  const countSpan = document.getElementById('sessions-selected-count');
+  if (!bar || !countSpan) return;
+  if (selectedSessions.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedSessions.size} sesi terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearSessionsSelection() {
+  selectedSessions.clear();
+  document.querySelectorAll('.session-checkbox').forEach(cb => cb.checked = false);
+  updateSessionsBulkBar();
+}
+
+function toggleSessionSelection(id, checked) {
+  if (checked) {
+    selectedSessions.add(id);
+  } else {
+    selectedSessions.delete(id);
+  }
+  updateSessionsBulkBar();
+}
+
+async function deleteSelectedSessions() {
+  const ids = Array.from(selectedSessions);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} sesi yang dipilih? Tindakan ini akan memutuskan koneksi dan menghapus data sesi.`, 'Hapus Sesi Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.sessions.bulkDelete(ids);
+    clearSessionsSelection();
+    renderSessions();
+    if (activeView === 'dashboard') renderDashboard();
+    showToast(res.message || `${ids.length} sesi berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus sesi: " + err.message, "error");
+  }
+}
+
+async function confirmDeleteAllSessions() {
+  const confirmed = await showConfirm('Apakah Anda yakin ingin menghapus SELURUH sesi WhatsApp yang ada? Tindakan ini tidak dapat dibatalkan.', 'Hapus Semua Sesi', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.sessions.deleteAll();
+    clearSessionsSelection();
+    renderSessions();
+    if (activeView === 'dashboard') renderDashboard();
+    showToast(res.message || "Semua sesi berhasil dihapus", "success");
+  } catch (err) {
+    showToast("Gagal menghapus semua sesi: " + err.message, "error");
+  }
+}
 
 async function renderSessions() {
   const grid = document.getElementById('sessions-grid');
@@ -670,6 +809,7 @@ async function renderSessions() {
     const sessions = res.data;
     
     if (sessions.length === 0) {
+      clearSessionsSelection();
       grid.innerHTML = `
         <div style="grid-column: 1/-1;">
           <div class="empty-state-card">
@@ -691,11 +831,15 @@ async function renderSessions() {
       const statusText = s.status === 'qr' ? 'SCAN QR' : s.status.charAt(0).toUpperCase() + s.status.slice(1);
       const isActive = s.status === 'active';
       const isWaiting = ['qr', 'connecting'].includes(s.status);
+      const isChecked = selectedSessions.has(s.id) ? 'checked' : '';
       
       return `
-        <div class="session-card ${s.status}">
+        <div class="session-card ${s.status}" style="position: relative;">
+          ${IS_ADMIN ? `
+          <input type="checkbox" class="session-checkbox card-select-checkbox" value="${s.id}" ${isChecked} onchange="toggleSessionSelection('${s.id}', this.checked)" title="Pilih sesi">
+          ` : ''}
           <div class="status-indicator"></div>
-          <div class="session-card-header">
+          <div class="session-card-header" style="${IS_ADMIN ? 'padding-left: 24px;' : ''}">
             <div class="session-info">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <h3>${s.name}</h3>
@@ -765,6 +909,8 @@ async function renderSessions() {
         </div>
       `;
     }).join('');
+
+    updateSessionsBulkBar();
 
   } catch (err) {
     grid.innerHTML = `<div style="grid-column: 1/-1; color: var(--danger); text-align: center; padding: 40px;">
@@ -1033,6 +1179,89 @@ const contactLimit = 25;
 let contactSearchTimeout = null;
 let groupSearchTimeout = null;
 
+let selectedContacts = new Set(); // Store contact IDs
+let selectedGroups = new Set(); // Store group contact IDs
+
+function updateContactsBulkBar() {
+  const bar = document.getElementById('contacts-bulk-bar');
+  const countSpan = document.getElementById('contacts-selected-count');
+  const selectAll = document.getElementById('select-all-contacts');
+  if (!bar || !countSpan) return;
+  if (selectedContacts.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedContacts.size} kontak terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+  if (selectAll && cachedContacts.length > 0) {
+    selectAll.checked = cachedContacts.every(c => selectedContacts.has(c.id));
+  }
+}
+
+function clearContactsSelection() {
+  selectedContacts.clear();
+  document.querySelectorAll('.contact-checkbox').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('select-all-contacts');
+  if (selectAll) selectAll.checked = false;
+  updateContactsBulkBar();
+}
+
+function toggleContactSelection(id, checked) {
+  if (checked) {
+    selectedContacts.add(id);
+  } else {
+    selectedContacts.delete(id);
+  }
+  updateContactsBulkBar();
+}
+
+function toggleSelectAllContacts(source) {
+  cachedContacts.forEach(c => {
+    if (source.checked) {
+      selectedContacts.add(c.id);
+    } else {
+      selectedContacts.delete(c.id);
+    }
+  });
+  document.querySelectorAll('.contact-checkbox').forEach(cb => cb.checked = source.checked);
+  updateContactsBulkBar();
+}
+
+async function deleteSelectedContacts() {
+  const ids = Array.from(selectedContacts);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} kontak terpilih dari daftar?`, 'Hapus Kontak Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.contacts.bulkDelete(ids);
+    clearContactsSelection();
+    renderContacts();
+    showToast(res.message || `${ids.length} kontak berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus kontak: " + err.message, "error");
+  }
+}
+
+async function confirmDeleteAllContacts(type = 'personal') {
+  const title = type === 'group' ? 'Hapus Semua Grup' : 'Hapus Semua Kontak';
+  const label = type === 'group' ? 'semua grup WhatsApp' : 'semua kontak pribadi';
+  const confirmed = await showConfirm(`Apakah Anda yakin ingin menghapus ${label}? Tindakan ini tidak dapat dibatalkan.`, title, 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.contacts.deleteAll(type);
+    if (type === 'group') {
+      clearGroupsSelection();
+      renderGroups();
+    } else {
+      clearContactsSelection();
+      renderContacts();
+    }
+    showToast(res.message || `Semua ${type === 'group' ? 'grup' : 'kontak'} berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus: " + err.message, "error");
+  }
+}
+
 async function renderContacts() {
   const tbody = document.getElementById('contacts-tbody');
   tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data...</td></tr>`;
@@ -1073,6 +1302,7 @@ function displayContacts(contacts) {
   const tbody = document.getElementById('contacts-tbody');
   if (contacts.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Kontak Pribadi</td></tr>`;
+    updateContactsBulkBar();
     return;
   }
 
@@ -1080,11 +1310,12 @@ function displayContacts(contacts) {
     const displayName = c.name && c.name !== '' ? c.name : c.phone_number.split('@')[0];
     const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? JSON.parse(c.tags || '[]') : []);
     const tagHtml = tags.map(t => `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--info); font-size: 0.65rem; margin-right: 4px;">${t}</span>`).join('');
+    const isChecked = selectedContacts.has(c.id) ? 'checked' : '';
 
     return `
       <tr>
         <td>${contactOffset + index + 1}</td>
-        <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-name="${displayName}"></td>
+        <td><input type="checkbox" class="contact-checkbox" value="${c.phone_number}" data-id="${c.id}" data-name="${displayName}" ${isChecked} onchange="toggleContactSelection('${c.id}', this.checked)"></td>
         <td><strong>${displayName}</strong></td>
         <td>${c.phone_number.split('@')[0]}</td>
         <td>${tagHtml || '-'}</td>
@@ -1097,10 +1328,8 @@ function displayContacts(contacts) {
       </tr>
     `;
   }).join('');
-}
 
-function toggleSelectAllContacts(source) {
-  document.querySelectorAll('.contact-checkbox').forEach(cb => cb.checked = source.checked);
+  updateContactsBulkBar();
 }
 
 function openAddContactModal() {
@@ -1153,9 +1382,12 @@ async function deleteContact(id) {
   if (!confirmed) return;
   try {
     await wa_api.contacts.delete(id);
+    selectedContacts.delete(id);
+    updateContactsBulkBar();
     renderContacts();
+    showToast("Kontak berhasil dihapus");
   } catch (err) {
-    alert("Gagal: " + err.message);
+    showToast("Gagal menghapus kontak: " + err.message, "error");
   }
 }
 
@@ -1172,18 +1404,93 @@ function filterContacts() {
   }, 350);
 }
 
+// ─── GROUPS MANAGEMENT ───
 let groupOffset = 0;
 const groupLimit = 25;
 
+function updateGroupsBulkBar() {
+  const bar = document.getElementById('groups-bulk-bar');
+  const countSpan = document.getElementById('groups-selected-count');
+  const selectAll = document.getElementById('select-all-groups');
+  if (!bar || !countSpan) return;
+  if (selectedGroups.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedGroups.size} grup terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+  if (selectAll && cachedGroups.length > 0) {
+    selectAll.checked = cachedGroups.every(g => selectedGroups.has(g.id));
+  }
+}
+
+function clearGroupsSelection() {
+  selectedGroups.clear();
+  document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('select-all-groups');
+  if (selectAll) selectAll.checked = false;
+  updateGroupsBulkBar();
+}
+
+function toggleGroupSelection(id, checked) {
+  if (checked) {
+    selectedGroups.add(id);
+  } else {
+    selectedGroups.delete(id);
+  }
+  updateGroupsBulkBar();
+}
+
+function toggleSelectAllGroups(source) {
+  cachedGroups.forEach(g => {
+    if (source.checked) {
+      selectedGroups.add(g.id);
+    } else {
+      selectedGroups.delete(g.id);
+    }
+  });
+  document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = source.checked);
+  updateGroupsBulkBar();
+}
+
+async function deleteSelectedGroups() {
+  const ids = Array.from(selectedGroups);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} grup terpilih dari database?`, 'Hapus Grup Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.contacts.bulkDelete(ids);
+    clearGroupsSelection();
+    renderGroups();
+    showToast(res.message || `${ids.length} grup berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus grup: " + err.message, "error");
+  }
+}
+
+async function deleteGroup(id) {
+  const confirmed = await showConfirm('Hapus data grup ini dari daftar?', 'Hapus Grup', 'danger');
+  if (!confirmed) return;
+  try {
+    await wa_api.contacts.delete(id);
+    selectedGroups.delete(id);
+    updateGroupsBulkBar();
+    renderGroups();
+    showToast("Grup berhasil dihapus");
+  } catch (err) {
+    showToast("Gagal menghapus grup: " + err.message, "error");
+  }
+}
+
 async function renderGroups() {
   const tbody = document.getElementById('groups-tbody');
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data grup...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data grup...</td></tr>`;
   
   try {
     const searchQuery = (document.getElementById('search-groups')?.value || '').trim();
     const res = await wa_api.contacts.listGroups({ 
       limit: groupLimit, 
-      offset: groupOffset,
+      offset: groupOffset, 
       q: searchQuery 
     });
     cachedGroups = res.data;
@@ -1198,7 +1505,7 @@ async function renderGroups() {
     document.getElementById('btn-prev-group').disabled = groupOffset === 0;
     document.getElementById('btn-next-group').disabled = (groupOffset + groupLimit) >= total;
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -1211,16 +1518,19 @@ function changeGroupPage(dir) {
 function displayGroups(groups) {
   const tbody = document.getElementById('groups-tbody');
   if (groups.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Belum ada Grup terdeteksi</td></tr>`;
+    updateGroupsBulkBar();
     return;
   }
 
   tbody.innerHTML = groups.map((g, index) => {
     // Priority: Database name -> Group ID prefix
     const displayName = g.name && g.name !== '' ? g.name : g.phone_number.split('@')[0];
+    const isChecked = selectedGroups.has(g.id) ? 'checked' : '';
     return `
       <tr>
         <td>${groupOffset + index + 1}</td>
+        <td><input type="checkbox" class="group-checkbox" value="${g.phone_number}" data-id="${g.id}" ${isChecked} onchange="toggleGroupSelection('${g.id}', this.checked)"></td>
         <td><strong>${displayName}</strong></td>
         <td>${g.phone_number}</td>
         <td>
@@ -1232,10 +1542,13 @@ function displayGroups(groups) {
         <td><span class="badge" style="font-size:0.7rem">${g.source}</span></td>
         <td>
           <button class="btn btn-sm btn-outline" title="Kirim Pesan ke Grup" onclick="openDirectMessageModal('${g.phone_number}')"><i class="fa-solid fa-paper-plane"></i></button>
+          <button class="btn btn-sm btn-outline" title="Hapus Grup" style="color:var(--danger)" onclick="deleteGroup('${g.id}')"><i class="fa-solid fa-trash"></i></button>
         </td>
       </tr>
     `;
   }).join('');
+
+  updateGroupsBulkBar();
 }
 
 function filterGroups() {
@@ -1279,6 +1592,63 @@ async function syncWhatsApp() {
 }
 
 // ─── CAMPAIGNS MANAGEMENT ───
+let selectedCampaigns = new Set();
+
+function updateCampaignsBulkBar() {
+  const bar = document.getElementById('campaigns-bulk-bar');
+  const countSpan = document.getElementById('campaigns-selected-count');
+  if (!bar || !countSpan) return;
+  if (selectedCampaigns.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedCampaigns.size} campaign terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearCampaignsSelection() {
+  selectedCampaigns.clear();
+  document.querySelectorAll('.campaign-checkbox').forEach(cb => cb.checked = false);
+  updateCampaignsBulkBar();
+}
+
+function toggleCampaignSelection(id, checked) {
+  if (checked) {
+    selectedCampaigns.add(id);
+  } else {
+    selectedCampaigns.delete(id);
+  }
+  updateCampaignsBulkBar();
+}
+
+async function deleteSelectedCampaigns() {
+  const ids = Array.from(selectedCampaigns);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} campaign terpilih beserta data pengirimannya?`, 'Hapus Campaign Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.campaigns.bulkDelete(ids);
+    clearCampaignsSelection();
+    renderCampaigns();
+    showToast(res.message || `${ids.length} campaign berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus campaign: " + err.message, "error");
+  }
+}
+
+async function confirmDeleteAllCampaigns() {
+  const confirmed = await showConfirm('Apakah Anda yakin ingin menghapus SELURUH broadcast campaign beserta semua riwayat pesan terkait? Tindakan ini tidak dapat dibatalkan.', 'Hapus Semua Campaign', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.campaigns.deleteAll();
+    clearCampaignsSelection();
+    renderCampaigns();
+    showToast(res.message || "Semua campaign berhasil dihapus", "success");
+  } catch (err) {
+    showToast("Gagal menghapus semua campaign: " + err.message, "error");
+  }
+}
+
 async function renderCampaigns() {
   const grid = document.getElementById('campaigns-grid');
   grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px;">
@@ -1290,6 +1660,7 @@ async function renderCampaigns() {
     const campaigns = res.data;
     
     if (campaigns.length === 0) {
+      clearCampaignsSelection();
       grid.innerHTML = `
         <div style="grid-column: 1/-1;">
           <div class="empty-state-card">
@@ -1309,9 +1680,11 @@ async function renderCampaigns() {
 
     grid.innerHTML = campaigns.map((c) => {
       const progress = c.total_recipients > 0 ? Math.round((c.sent_count / c.total_recipients) * 100) : 0;
+      const isChecked = selectedCampaigns.has(c.id) ? 'checked' : '';
       return `
-        <div class="campaign-card">
-          <div class="campaign-card-header">
+        <div class="campaign-card" style="position: relative;">
+          <input type="checkbox" class="campaign-checkbox card-select-checkbox" value="${c.id}" ${isChecked} onchange="toggleCampaignSelection('${c.id}', this.checked)" title="Pilih campaign">
+          <div class="campaign-card-header" style="padding-left: 24px;">
             <div class="campaign-card-title">
               <h3>${c.name}</h3>
               <span class="badge ${c.status}">${c.status}</span>
@@ -1366,6 +1739,8 @@ async function renderCampaigns() {
           </div>
         </div>
     `}).join('');
+
+    updateCampaignsBulkBar();
   } catch (err) {
     grid.innerHTML = `<div style="grid-column: 1/-1;">
       <div class="empty-state text-danger">
@@ -1381,6 +1756,8 @@ async function deleteCampaign(id) {
   if (!confirmed) return;
   try {
     await wa_api.campaigns.delete(id);
+    selectedCampaigns.delete(id);
+    updateCampaignsBulkBar();
     renderCampaigns();
     showToast("Campaign berhasil dihapus!", "success");
   } catch (err) {
@@ -1784,40 +2161,124 @@ async function sendDirectMessage(e) {
     btn.disabled = false;
   }
 }
+let selectedUsers = new Set();
+let cachedUsers = [];
+
+function updateUsersBulkBar() {
+  const bar = document.getElementById('users-bulk-bar');
+  const countSpan = document.getElementById('users-selected-count');
+  const selectAll = document.getElementById('select-all-users');
+  if (!bar || !countSpan) return;
+  if (selectedUsers.size > 0) {
+    bar.style.display = 'flex';
+    countSpan.innerText = `${selectedUsers.size} user terpilih`;
+  } else {
+    bar.style.display = 'none';
+  }
+  if (selectAll && cachedUsers.length > 0) {
+    selectAll.checked = cachedUsers.every(u => selectedUsers.has(u.id));
+  }
+}
+
+function clearUsersSelection() {
+  selectedUsers.clear();
+  document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('select-all-users');
+  if (selectAll) selectAll.checked = false;
+  updateUsersBulkBar();
+}
+
+function toggleUserSelection(id, checked) {
+  if (checked) {
+    selectedUsers.add(id);
+  } else {
+    selectedUsers.delete(id);
+  }
+  updateUsersBulkBar();
+}
+
+function toggleSelectAllUsers(source) {
+  cachedUsers.forEach(u => {
+    if (source.checked) {
+      selectedUsers.add(u.id);
+    } else {
+      selectedUsers.delete(u.id);
+    }
+  });
+  document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = source.checked);
+  updateUsersBulkBar();
+}
+
+async function deleteSelectedUsers() {
+  const ids = Array.from(selectedUsers);
+  if (ids.length === 0) return;
+  const confirmed = await showConfirm(`Hapus ${ids.length} user terpilih? Sesi login mereka akan terputus.`, 'Hapus User Terpilih', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.users.bulkDelete(ids);
+    clearUsersSelection();
+    renderUsers();
+    showToast(res.message || `${ids.length} user berhasil dihapus`, "success");
+  } catch (err) {
+    showToast("Gagal menghapus user: " + err.message, "error");
+  }
+}
+
+async function confirmDeleteAllUsers() {
+  const confirmed = await showConfirm('Apakah Anda yakin ingin menghapus SEMUA user tambahan (selain akun admin & akun Anda sendiri)?', 'Hapus Semua User', 'danger');
+  if (!confirmed) return;
+  try {
+    const res = await wa_api.users.deleteAll();
+    clearUsersSelection();
+    renderUsers();
+    showToast(res.message || "Semua user berhasil dihapus", "success");
+  } catch (err) {
+    showToast("Gagal menghapus semua user: " + err.message, "error");
+  }
+}
+
 async function renderUsers() {
   const tbody = document.getElementById('users-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="5" class="text-center">Memuat user...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center">Memuat user...</td></tr>';
 
   try {
     const res = await wa_api.fetch('/users');
-    const users = res.data;
+    cachedUsers = res.data || [];
+    const users = cachedUsers;
 
     if (users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center">Belum ada user tambahan</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">Belum ada user tambahan</td></tr>';
+      updateUsersBulkBar();
       return;
     }
 
-    tbody.innerHTML = users.map((user, index) => `
-      <tr>
-        <td>${index + 1}</td>
-        <td><strong>${user.username}</strong></td>
-        <td><span class="status-badge ${user.role === 'admin' ? 'sent' : 'received'}">${user.role.toUpperCase()}</span></td>
-        <td>${new Date(user.created_at).toLocaleString()}</td>
-        <td>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-sm btn-primary" onclick="openEditUserModal('${user.id}', '${user.username}', '${user.role}')">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-            <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.id}')">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = users.map((user, index) => {
+      const isChecked = selectedUsers.has(user.id) ? 'checked' : '';
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td><input type="checkbox" class="user-checkbox" value="${user.id}" ${isChecked} onchange="toggleUserSelection('${user.id}', this.checked)"></td>
+          <td><strong>${user.username}</strong></td>
+          <td><span class="status-badge ${user.role === 'admin' ? 'sent' : 'received'}">${user.role.toUpperCase()}</span></td>
+          <td>${new Date(user.created_at).toLocaleString()}</td>
+          <td>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm btn-primary" onclick="openEditUserModal('${user.id}', '${user.username}', '${user.role}')">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.id}')">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    updateUsersBulkBar();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Gagal memuat: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 
@@ -1846,10 +2307,13 @@ async function createUser(e) {
 }
 
 async function deleteUser(id) {
-  if (!confirm("Apakah Anda yakin ingin menghapus user ini? Sesi login mereka juga akan terputus.")) return;
+  const confirmed = await showConfirm("Apakah Anda yakin ingin menghapus user ini? Sesi login mereka juga akan terputus.", "Hapus User", "danger");
+  if (!confirmed) return;
 
   try {
     await wa_api.fetch(`/users/${id}`, { method: 'DELETE' });
+    selectedUsers.delete(id);
+    updateUsersBulkBar();
     showToast("User berhasil dihapus!", "success");
     renderUsers();
   } catch (err) {

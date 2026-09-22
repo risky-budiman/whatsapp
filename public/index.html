@@ -121,9 +121,28 @@
     <section id="view-users" class="view-section">
       <div class="header">
         <h1>Manajemen Akses User</h1>
-        <button class="btn btn-primary" onclick="openModal('modal-add-user')">
-          <i class="fa-solid fa-user-plus"></i> Tambah User
-        </button>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-outline-danger" onclick="confirmDeleteAllUsers()" title="Hapus semua user staf">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua User
+          </button>
+          <button class="btn btn-primary" onclick="openModal('modal-add-user')">
+            <i class="fa-solid fa-user-plus"></i> Tambah User
+          </button>
+        </div>
+      </div>
+
+      <!-- Bulk Action Bar Users -->
+      <div id="users-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="users-selected-count">0 user terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearUsersSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedUsers()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
+          </button>
+        </div>
       </div>
 
       <div class="table-container">
@@ -131,6 +150,7 @@
           <thead>
             <tr>
               <th style="width: 40px;">No</th>
+              <th style="width: 40px;"><input type="checkbox" id="select-all-users" onclick="toggleSelectAllUsers(this)"></th>
               <th>Username</th>
               <th>Role</th>
               <th>Tanggal Dibuat</th>
@@ -263,7 +283,10 @@
     <section id="view-sessions" class="view-section">
       <div class="header">
         <h1>Sesi & Perangkat</h1>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-outline-danger admin-only" onclick="confirmDeleteAllSessions()" style="display: none;" title="Hapus semua sesi WhatsApp">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua Sesi
+          </button>
           <button class="btn btn-primary" id="btn-add-session" onclick="openModal('modal-add-session')"
             style="display: none;">
             <i class="fa-solid fa-plus"></i> Tambah Nomor
@@ -273,6 +296,20 @@
           </button>
           <button class="btn btn-nuclear" id="btn-hard-reset" onclick="hardResetAllData()" style="display: none;">
             <i class="fa-solid fa-radiation"></i> Reset Database
+          </button>
+        </div>
+      </div>
+
+      <!-- Bulk Action Bar Sessions -->
+      <div id="sessions-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="sessions-selected-count">0 sesi terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearSessionsSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedSessions()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
           </button>
         </div>
       </div>
@@ -292,12 +329,29 @@
           <button class="btn btn-secondary" id="btn-sync-wa" onclick="syncWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> Sync WhatsApp
           </button>
-
+          <button class="btn btn-outline-danger" onclick="confirmDeleteAllContacts('personal')" title="Hapus semua kontak pribadi">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua Kontak
+          </button>
           <button class="btn btn-primary" onclick="openAddContactModal()">
             <i class="fa-solid fa-plus"></i> Tambah Kontak
           </button>
         </div>
       </div>
+
+      <!-- Bulk Action Bar Contacts -->
+      <div id="contacts-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="contacts-selected-count">0 kontak terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearContactsSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedContacts()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
+          </button>
+        </div>
+      </div>
+
       <div class="table-container">
         <table>
           <thead>
@@ -334,11 +388,28 @@
     <section id="view-groups" class="view-section">
       <div class="header">
         <h1>Manajemen Grup</h1>
-        <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="search-groups" class="form-control" placeholder="Cari nama grup..."
             onkeyup="filterGroups()" style="width: 250px; margin-bottom: 0;">
           <button class="btn btn-outline" onclick="syncWhatsApp()">
             <i class="fa-solid fa-rotate"></i> Sync WhatsApp
+          </button>
+          <button class="btn btn-outline-danger" onclick="confirmDeleteAllContacts('group')" title="Hapus semua data grup">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua Grup
+          </button>
+        </div>
+      </div>
+
+      <!-- Bulk Action Bar Groups -->
+      <div id="groups-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="groups-selected-count">0 grup terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearGroupsSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedGroups()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
           </button>
         </div>
       </div>
@@ -348,6 +419,7 @@
           <thead>
             <tr>
               <th style="width: 40px;">No</th>
+              <th style="width: 40px;"><input type="checkbox" id="select-all-groups" onclick="toggleSelectAllGroups(this)"></th>
               <th>Nama Grup</th>
               <th>JID Grup</th>
               <th>Tipe</th>
@@ -377,10 +449,30 @@
     <section id="view-campaigns" class="view-section">
       <div class="header">
         <h1>Broadcast Campaigns</h1>
-        <button class="btn btn-primary" onclick="openCampaignModal()">
-          <i class="fa-solid fa-paper-plane"></i> Buat Campaign
-        </button>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-outline-danger" onclick="confirmDeleteAllCampaigns()" title="Hapus semua campaign">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua Campaign
+          </button>
+          <button class="btn btn-primary" onclick="openCampaignModal()">
+            <i class="fa-solid fa-paper-plane"></i> Buat Campaign
+          </button>
+        </div>
       </div>
+
+      <!-- Bulk Action Bar Campaigns -->
+      <div id="campaigns-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="campaigns-selected-count">0 campaign terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearCampaignsSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedCampaigns()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
+          </button>
+        </div>
+      </div>
+
       <div id="campaigns-grid" class="sessions-grid">
         <!-- Rendered via JS as CARDS -->
       </div>
@@ -406,6 +498,23 @@
           <button class="btn btn-outline" onclick="renderMessageLogs()">
             <i class="fa-solid fa-rotate"></i> Refresh
           </button>
+          <button class="btn btn-outline-danger" onclick="confirmDeleteAllLogs()" title="Hapus semua riwayat pesan">
+            <i class="fa-solid fa-trash-can"></i> Hapus Semua Riwayat
+          </button>
+        </div>
+      </div>
+
+      <!-- Bulk Action Bar Logs -->
+      <div id="logs-bulk-bar" class="bulk-action-bar" style="display: none;">
+        <div class="bulk-count-badge">
+          <i class="fa-solid fa-check-square"></i>
+          <span id="logs-selected-count">0 pesan terpilih</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-outline" onclick="clearLogsSelection()">Batal</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelectedLogs()">
+            <i class="fa-solid fa-trash"></i> Hapus Terpilih
+          </button>
         </div>
       </div>
 
@@ -414,6 +523,7 @@
           <thead>
             <tr>
               <th style="width: 40px;">No</th>
+              <th style="width: 40px;"><input type="checkbox" id="select-all-logs" onclick="toggleSelectAllLogs(this)"></th>
               <th>Penerima</th>
               <th>Isi Pesan</th>
               <th>Device</th>
@@ -869,6 +979,8 @@
         disconnect: (id) => wa_api.fetch(`/sessions/${id}/disconnect`, { method: 'POST' }),
         connect: (id) => wa_api.fetch(`/sessions/${id}/connect`, { method: 'POST' }),
         delete: (id) => wa_api.fetch(`/sessions/${id}`, { method: 'DELETE' }),
+        bulkDelete: (ids) => wa_api.fetch('/sessions/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+        deleteAll: () => wa_api.fetch('/sessions/all', { method: 'DELETE' }),
         restart: (id) => wa_api.fetch(`/sessions/${id}/restart`, { method: 'POST' }),
         syncAll: () => wa_api.fetch('/sessions/sync-all-contacts', { method: 'POST' }),
         clearData: (id) => wa_api.fetch(`/sessions/${id}/clear-data`, { method: 'POST' }),
@@ -888,8 +1000,9 @@
           const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
           return wa_api.fetch(`/contacts/groups?limit=${limit}&offset=${offset}${q}`);
         },
-
-        delete: (id) => wa_api.fetch(`/contacts/${id}`, { method: 'DELETE' })
+        delete: (id) => wa_api.fetch(`/contacts/${id}`, { method: 'DELETE' }),
+        bulkDelete: (ids) => wa_api.fetch('/contacts/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+        deleteAll: (type = 'all') => wa_api.fetch(`/contacts/all?type=${encodeURIComponent(type)}`, { method: 'DELETE' })
       },
       chats: {
         list: () => wa_api.fetch('/chats'),
@@ -904,6 +1017,8 @@
         sendReply: (phone, message) => wa_api.fetch(`/chats/${phone}`, { method: 'POST', body: JSON.stringify({ message }) }),
         deleteMessage: (id) => wa_api.fetch(`/chats/message/${id}`, { method: 'DELETE' }),
         deleteLog: (id) => wa_api.fetch(`/chats/log/${id}`, { method: 'DELETE' }),
+        bulkDeleteLogs: (ids) => wa_api.fetch('/chats/logs/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+        deleteAllLogs: () => wa_api.fetch('/chats/logs/all', { method: 'DELETE' }),
         clearHistory: (phone) => wa_api.fetch(`/chats/history/${phone}`, { method: 'DELETE' })
       },
       settings: {
@@ -918,7 +1033,15 @@
         pause: (id) => wa_api.fetch(`/campaigns/${id}/pause`, { method: 'POST' }),
         resume: (id) => wa_api.fetch(`/campaigns/${id}/resume`, { method: 'POST' }),
         resendFailed: (id) => wa_api.fetch(`/campaigns/${id}/resend-failed`, { method: 'POST' }),
-        delete: (id) => wa_api.fetch(`/campaigns/${id}`, { method: 'DELETE' })
+        delete: (id) => wa_api.fetch(`/campaigns/${id}`, { method: 'DELETE' }),
+        bulkDelete: (ids) => wa_api.fetch('/campaigns/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+        deleteAll: () => wa_api.fetch('/campaigns/all', { method: 'DELETE' })
+      },
+      users: {
+        list: () => wa_api.fetch('/users'),
+        delete: (id) => wa_api.fetch(`/users/${id}`, { method: 'DELETE' }),
+        bulkDelete: (ids) => wa_api.fetch('/users/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+        deleteAll: () => wa_api.fetch('/users/all', { method: 'DELETE' })
       }
     };
 
