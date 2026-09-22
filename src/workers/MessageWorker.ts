@@ -21,12 +21,12 @@ export function initWorker(): void {
   messageWorker = new Worker(
     MESSAGE_QUEUE_NAME,
     async (job: Job) => {
-      const { messageId, campaignId, sessionId: requestedSessionId, targetPhone, messageContent } = job.data;
+      const { messageId, campaignId, sessionId: requestedSessionId, targetPhone, messageContent, mode = 'safe' } = job.data;
       const db = getDb();
       const sm = getSessionManager();
       const antiBan = getAntiBanEngine();
 
-      logger.info(`⚙️ Worker processing message ${messageId} for ${targetPhone}`);
+      logger.info(`⚙️ Worker processing message ${messageId} for ${targetPhone} (Mode: ${mode})`);
 
       try {
         // 1. Mark as sending (only if part of a campaign)
@@ -64,15 +64,20 @@ export function initWorker(): void {
         const sessionId = selectedSessionId;
         const sessionName = selectedSessionName;
 
-        // 3. Apply Rest Logic (Check if we need to rest because batch limit reached)
-        // Note: For now using default env values, later can be overwritten by campaign config
-        await antiBan.checkAndApplyRest();
+        // 3. Apply Rest Logic (Check if we need to rest because batch limit reached, only in safe mode)
+        if (mode === 'safe') {
+          await antiBan.checkAndApplyRest();
+        }
 
         // 4. Format JID
         const jid = toWhatsAppJid(targetPhone);
 
-        // 5. Send Message (This handles Typing Simulation internally)
-        const result: any = await sm.sendMessage(sessionId, jid, messageContent);
+        // 5. Send Message (Handles typing and optional onWhatsApp validation)
+        const isFast = mode === 'fast';
+        const result: any = await sm.sendMessage(sessionId, jid, messageContent, {
+          typing: !isFast,
+          checkExists: true
+        });
         const waMessageId = result?.id?._serialized || result?.id?.id || null;
 
         // 6. Log success and update DB
@@ -114,13 +119,18 @@ export function initWorker(): void {
 
         await db.query(
           "INSERT INTO wa_message_logs (id, session_id, campaign_id, target_phone, message_content, direction, status, metadata) VALUES (UUID(), ?, ?, ?, ?, 'outgoing', 'sent', ?)",
-          [sessionId, campaignId || null, targetPhone, messageContent, JSON.stringify({ waMessageId })]
+          [sessionId, campaignId || null, targetPhone, messageContent, JSON.stringify({ waMessageId, mode })]
         );
 
         logger.info(`✅ Sent message ${messageId} via ${sessionName}`);
 
-        // 7. Apply random delay BEFORE processing the next message in queue
-        await antiBan.applyJitter();
+        // 7. Apply jitter delay BEFORE processing the next message in queue
+        if (mode === 'safe') {
+          await antiBan.applyJitter();
+        } else {
+          // Fast mode: minimal 1-2s delay between messages to not flood socket
+          await antiBan.applyJitter(1, 2);
+        }
 
       } catch (err: any) {
         // Log failure

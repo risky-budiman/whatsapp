@@ -68,6 +68,7 @@ export async function queueMessage(data: {
   sessionId?: string;
   targetPhone: string;
   messageContent: string;
+  mode?: 'safe' | 'fast';
 }): Promise<void> {
   const queue = getMessageQueue();
   await queue.add('send-message', data, {

@@ -2129,6 +2129,7 @@ async function sendDirectMessage(e) {
   e.preventDefault();
   const sessionId = document.getElementById('dm-session-id').value;
   const phone = document.getElementById('dm-target-phone').value;
+  const mode = document.getElementById('dm-mode')?.value || 'safe';
   const message = document.getElementById('dm-message').value;
   
   const btn = e.target.querySelector('button');
@@ -2137,22 +2138,32 @@ async function sendDirectMessage(e) {
   btn.disabled = true;
 
   try {
-    // Bersihkan nomor dari spasi, strip, atau simbol lainnya
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    
-    if (!cleanPhone) {
-      throw new Error("Nomor tujuan tidak valid");
+    if (!phone || !phone.trim()) {
+      throw new Error("Nomor tujuan tidak boleh kosong");
     }
 
-    await wa_api.fetch(`/chats/${cleanPhone}`, {
+    const res = await wa_api.fetch('/chats/send-message', {
       method: 'POST',
-      body: JSON.stringify({ message, sessionId: sessionId || 'auto' })
+      body: JSON.stringify({ 
+        phone, 
+        message, 
+        sessionId: sessionId || 'auto',
+        mode
+      })
     });
     
     closeModal('modal-direct-message');
-    showToast("Pesan berhasil dikirim!");
-    if (document.getElementById('view-logs').classList.contains('active')) {
+    if (res.status === 'queued') {
+      showToast(res.message || "Pesan dimasukkan ke antrean pengiriman!", "success");
+    } else {
+      showToast(res.message || "Pesan berhasil diproses!", "success");
+    }
+
+    if (document.getElementById('view-logs')?.classList.contains('active')) {
       renderMessageLogs();
+    }
+    if (document.getElementById('view-dashboard')?.classList.contains('active')) {
+      renderDashboard();
     }
   } catch (err) {
     showToast("Gagal mengirim pesan: " + err.message, "error");

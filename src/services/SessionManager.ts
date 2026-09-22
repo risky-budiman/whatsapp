@@ -487,7 +487,35 @@ export class SessionManager extends EventEmitter {
     return this.connectSession(sessionId, name);
   }
 
-  async sendMessage(sessionId: string, to: string, text: string): Promise<any> {
+  /**
+   * Check if a phone number is registered on WhatsApp
+   */
+  async checkNumberExists(sessionId: string, phone: string): Promise<{ exists: boolean; jid?: string }> {
+    const active = this.sessions.get(sessionId);
+    if (!active || active.info.status !== 'active') {
+      return { exists: false };
+    }
+
+    try {
+      const cleanDigits = phone.replace(/\D/g, '');
+      const results = await active.client.onWhatsApp(cleanDigits);
+      if (results && results.length > 0 && results[0].exists) {
+        return { exists: true, jid: results[0].jid };
+      }
+      return { exists: false };
+    } catch (e: any) {
+      logger.warn(`[onWhatsApp] Failed to verify number ${phone}: ${e.message}`);
+      // Fallback: Return true if check fails to not block legitimate deliveries
+      return { exists: true };
+    }
+  }
+
+  async sendMessage(
+    sessionId: string, 
+    to: string, 
+    text: string, 
+    options?: { typing?: boolean; checkExists?: boolean }
+  ): Promise<any> {
     const active = this.sessions.get(sessionId);
     if (!active || active.info.status !== 'active') {
       throw new Error('Session not active');
@@ -500,14 +528,30 @@ export class SessionManager extends EventEmitter {
       chatId = chatId.replace('@c.us', '@s.whatsapp.net');
     }
 
-    // Typing simulation (anti-ban behavior)
-    try {
-      await active.client.presenceSubscribe(chatId);
-      await active.client.sendPresenceUpdate('composing', chatId);
-      const typingDelay = Math.floor(Math.random() * 1500) + 1000;
-      await new Promise((resolve) => setTimeout(resolve, typingDelay));
-      await active.client.sendPresenceUpdate('paused', chatId);
-    } catch (e) {}
+    const isGroup = chatId.endsWith('@g.us');
+
+    // Optional onWhatsApp validation for personal chat
+    if (options?.checkExists && !isGroup) {
+      const cleanPhone = chatId.replace('@s.whatsapp.net', '');
+      const check = await this.checkNumberExists(sessionId, cleanPhone);
+      if (!check.exists) {
+        throw new Error(`Nomor ${cleanPhone} tidak terdaftar di WhatsApp`);
+      }
+      if (check.jid) {
+        chatId = check.jid;
+      }
+    }
+
+    // Typing simulation (anti-ban behavior) - only if typing is enabled (defaults to true)
+    if (options?.typing !== false) {
+      try {
+        await active.client.presenceSubscribe(chatId);
+        await active.client.sendPresenceUpdate('composing', chatId);
+        const typingDelay = Math.floor(Math.random() * 1200) + 800;
+        await new Promise((resolve) => setTimeout(resolve, typingDelay));
+        await active.client.sendPresenceUpdate('paused', chatId);
+      } catch (e) {}
+    }
 
     const result = await active.client.sendMessage(chatId, { text });
 

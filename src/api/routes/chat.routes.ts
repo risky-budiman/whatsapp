@@ -214,7 +214,7 @@ router.get('/', async (_req: Request, res: Response) => {
  *             properties:
  *               phone:
  *                 type: string
- *                 description: Target phone number (e.g. "628123...") or multiple numbers separated by comma
+ *                 description: Target phone number (e.g. "0812...", "+62812...") or multiple numbers separated by comma
  *               phones:
  *                 type: array
  *                 items:
@@ -222,9 +222,18 @@ router.get('/', async (_req: Request, res: Response) => {
  *                 description: Array of target phone numbers
  *               message:
  *                 type: string
+ *                 description: Message text
  *               sessionId:
  *                 type: string
  *                 description: Session ID (Optional, defaults to best active session/Rotation)
+ *               mode:
+ *                 type: string
+ *                 enum: [safe, fast]
+ *                 default: safe
+ *                 description: "'safe' uses human-like typing simulation and anti-ban delay (recommended). 'fast' delivers immediately with minimal delay."
+ *               delay:
+ *                 type: integer
+ *                 description: Custom delay in seconds between numbers (Optional, default 5-15s for safe mode, 1s for fast mode)
  *     responses:
  *       200:
  *         description: Message(s) processed
@@ -256,7 +265,7 @@ router.get('/send-message', async (req: Request, res: Response) => {
     }
 
     const targetJid = toWhatsAppJid(phone as string);
-    const result = await sm.sendMessage(finalSessionId, targetJid, message as string);
+    const result = await sm.sendMessage(finalSessionId, targetJid, message as string, { checkExists: true });
     const waMessageId = result?.id?._serialized || result?.id?.id || null;
 
     // Log to Database
@@ -301,17 +310,44 @@ router.get('/send-message', async (req: Request, res: Response) => {
 // POST /api/chats/send-message — Send message via POST (Supports multiple numbers with queue & anti-ban protection)
 router.post('/send-message', async (req: Request, res: Response) => {
   try {
-    const { phone, phones, message, sessionId, queue: forceQueue } = req.body;
+    const { 
+      phone, 
+      phones, 
+      message, 
+      sessionId, 
+      queue: forceQueue,
+      mode: requestedMode,
+      delay: customDelaySec
+    } = req.body;
 
-    let targetPhones: string[] = [];
+    // Determine mode: 'safe' (default) vs 'fast'
+    const mode: 'safe' | 'fast' = requestedMode === 'fast' ? 'fast' : 'safe';
+
+    let rawPhones: string[] = [];
     if (phones && Array.isArray(phones)) {
-      targetPhones = phones;
+      rawPhones = phones;
     } else if (phone && typeof phone === 'string') {
-      targetPhones = phone.split(',').map(p => p.trim()).filter(p => p);
+      rawPhones = phone.split(',').map(p => p.trim()).filter(p => p);
     }
 
+    // Sanitize and filter valid numbers
+    const targetPhones: string[] = rawPhones
+      .map(p => {
+        const trimmed = String(p).trim();
+        // If it's a group, keep as is
+        if (trimmed.includes('@g.us') || (trimmed.includes('-') && !trimmed.includes('@'))) {
+          return trimmed;
+        }
+        // Normalize digits (e.g. 0812... -> 62812...)
+        return toWhatsAppJid(trimmed);
+      })
+      .filter(p => p.length > 0);
+
     if (targetPhones.length === 0 || !message) {
-      return res.status(400).json({ success: false, message: 'Missing phone/phones array or message in body' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing valid phone/phones array or message in body' 
+      });
     }
 
     const sm = getSessionManager();
@@ -319,8 +355,8 @@ router.post('/send-message', async (req: Request, res: Response) => {
     let finalSessionId = sessionId as string;
 
     // Check if queue should be used:
-    // If sending to > 1 number OR forceQueue is set to true, use queue to protect from Meta suspension
-    const shouldQueue = targetPhones.length > 1 || forceQueue === true;
+    // When sending in 'safe' mode with > 1 number OR forceQueue is set to true, use queue
+    const shouldQueue = (targetPhones.length > 1 && mode === 'safe') || forceQueue === true;
 
     if (shouldQueue) {
       let queuedViaRedis = false;
@@ -333,7 +369,8 @@ router.post('/send-message', async (req: Request, res: Response) => {
             messageId: msgId,
             sessionId: finalSessionId || undefined,
             targetPhone: p,
-            messageContent: message
+            messageContent: message,
+            mode
           });
           queueJobIds.push(msgId);
         }
@@ -344,13 +381,14 @@ router.post('/send-message', async (req: Request, res: Response) => {
       }
 
       if (queuedViaRedis) {
-        logger.info(`📦 Enqueued ${targetPhones.length} messages into Anti-Ban Queue safely`);
+        logger.info(`📦 Enqueued ${targetPhones.length} messages into Anti-Ban Queue safely (${mode} mode)`);
         return res.json({
           success: true,
           status: 'queued',
-          message: `Berhasil memasukkan ${targetPhones.length} nomor ke dalam antrean pengiriman anti-ban (delay jitter & rotasi sesi otomatis)`,
+          message: `Berhasil memasukkan ${targetPhones.length} nomor ke dalam antrean pengiriman anti-ban (Mode: ${mode})`,
           data: {
             total: targetPhones.length,
+            mode,
             queued: true,
             jobIds: queueJobIds
           }
@@ -358,8 +396,7 @@ router.post('/send-message', async (req: Request, res: Response) => {
       }
     }
 
-    // Single message OR Fallback if Redis is not running:
-    // Direct send with anti-ban jitter between numbers to prevent suspension
+    // Direct Sending (Single message, Fast mode, OR Redis Queue Offline Fallback)
     if (!finalSessionId || finalSessionId === 'auto' || finalSessionId === 'string') {
       finalSessionId = sm.getBestSession()?.id as string;
       if (!finalSessionId) {
@@ -374,12 +411,16 @@ router.post('/send-message', async (req: Request, res: Response) => {
 
     const antiBan = getAntiBanEngine();
     const results = [];
+    const isFast = mode === 'fast';
 
     for (let i = 0; i < targetPhones.length; i++) {
       const p = targetPhones[i];
       try {
-        const targetJid = toWhatsAppJid(p);
-        const result = await sm.sendMessage(finalSessionId, targetJid, message);
+        // Send message with typing simulation according to mode
+        const result = await sm.sendMessage(finalSessionId, p, message, {
+          typing: !isFast,
+          checkExists: true
+        });
         const waMessageId = result?.id?._serialized || result?.id?.id || null;
 
         const chatId = uuidv4();
@@ -392,7 +433,7 @@ router.post('/send-message', async (req: Request, res: Response) => {
           await db.query(`
             INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status, metadata)
             VALUES (?, ?, ?, ?, 'outgoing', 'sent', ?)
-          `, [uuidv4(), finalSessionId, p, message, JSON.stringify({ waMessageId })]);
+          `, [uuidv4(), finalSessionId, p, message, JSON.stringify({ waMessageId, mode })]);
         } catch (logErr: any) {}
 
         emitChatEvent({
@@ -408,19 +449,46 @@ router.post('/send-message', async (req: Request, res: Response) => {
 
         results.push({ phone: p, success: true, messageId: waMessageId });
 
-        // If sending to multiple numbers directly without queue, apply jitter delay between numbers
+        // Apply delay between multiple numbers
         if (targetPhones.length > 1 && i < targetPhones.length - 1) {
-          await antiBan.applyJitter();
+          if (typeof customDelaySec === 'number' && customDelaySec >= 0) {
+            await new Promise(r => setTimeout(r, customDelaySec * 1000));
+          } else if (isFast) {
+            // Fast mode: 1-2s delay
+            await antiBan.applyJitter(1, 2);
+          } else {
+            // Safe mode: anti-ban jitter
+            await antiBan.applyJitter();
+          }
         }
       } catch (err: any) {
+        logger.error(`[SEND_MESSAGE_FAIL] To ${p}: ${err.message}`);
+        // Log failure to message logs
+        try {
+          await db.query(`
+            INSERT INTO wa_message_logs (id, session_id, target_phone, message_content, direction, status, error, metadata)
+            VALUES (?, ?, ?, ?, 'outgoing', 'failed', ?, ?)
+          `, [uuidv4(), finalSessionId, p, message, err.message, JSON.stringify({ mode })]);
+        } catch (dbErr) {}
+
         results.push({ phone: p, success: false, error: err.message });
       }
     }
 
+    const successfulCount = results.filter(r => r.success).length;
+    const failedCount = results.filter(r => !r.success).length;
+
     res.json({
-      success: true,
-      message: `Processed sending to ${targetPhones.length} numbers`,
-      data: { sessionId: finalSessionId, results }
+      success: successfulCount > 0,
+      message: `Selesai mengirim ke ${targetPhones.length} nomor (${successfulCount} berhasil, ${failedCount} gagal)`,
+      data: { 
+        sessionId: finalSessionId, 
+        mode,
+        total: targetPhones.length,
+        successful: successfulCount,
+        failed: failedCount,
+        results 
+      }
     });
   } catch (err: any) {
     logger.error(`POST /send-message error: ${err.message}`);

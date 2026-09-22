@@ -819,8 +819,16 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Nomor Tujuan (62xxx)</label>
-          <input type="text" id="dm-target-phone" class="form-control" required placeholder="628123..." />
+          <label>Nomor Tujuan (Dapat 1 nomor atau beberapa nomor dipisahkan koma)</label>
+          <input type="text" id="dm-target-phone" class="form-control" required placeholder="08123456789 atau 628123, 0857..." />
+          <small style="color:var(--text-muted); font-size: 0.72rem;">Sistem otomatis memformat 08... / +62... dan memverifikasi WhatsApp.</small>
+        </div>
+        <div class="form-group">
+          <label>Mode Pengiriman</label>
+          <select id="dm-mode" class="form-control">
+            <option value="safe" selected>🛡️ Mode Aman Anti-Ban (Direkomendasikan: Delay Acak & Simulasi Ketik)</option>
+            <option value="fast">⚡ Mode Cepat (Minimal Delay 1-2 detik)</option>
+          </select>
         </div>
         <div class="form-group">
           <label>Isi Pesan</label>
