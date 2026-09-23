@@ -148,15 +148,23 @@ router.get('/:id/qr', async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const sm = getSessionManager();
-    const session = sm.getSession(id);
+    let session = sm.getSession(id);
 
     if (!session) {
-      res.status(404).json({ success: false, message: 'Session not found' });
-      return;
+      // Check if session exists in DB
+      const dbSessions = await sm.getAllSessionsFromDb();
+      const sessionData = dbSessions.find(s => s.id === id);
+      if (!sessionData) {
+        res.status(404).json({ success: false, message: 'Session not found' });
+        return;
+      }
+      // Auto connect session into memory
+      await sm.connectSession(id, sessionData.name).catch(() => {});
+      session = sm.getSession(id);
     }
 
     // If already connected, no QR needed
-    if (session.info.status === 'active') {
+    if (session && session.info.status === 'active') {
       res.json({
         success: true,
         status: 'connected',
@@ -175,7 +183,7 @@ router.get('/:id/qr', async (req: Request, res: Response) => {
     });
 
     // Send immediate initial status or QR if available
-    if (session.info.qr) {
+    if (session?.info?.qr) {
       const qrDataUrl = session.info.qr.startsWith('data:image/')
         ? session.info.qr
         : await QRCode.toDataURL(session.info.qr, { margin: 2 }).catch(() => null);
@@ -184,7 +192,7 @@ router.get('/:id/qr', async (req: Request, res: Response) => {
         res.write(`data: ${JSON.stringify({ type: 'qr', qr: qrDataUrl })}\n\n`);
       }
     } else {
-      res.write(`data: ${JSON.stringify({ type: 'waiting', status: session.info.status || 'connecting' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'waiting', status: session?.info?.status || 'connecting' })}\n\n`);
     }
 
     const onQr = async (data: { sessionId: string; qr: string }) => {
@@ -234,7 +242,18 @@ router.get('/:id/qr-image', async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const sm = getSessionManager();
-    const session = sm.getSession(id);
+    let session = sm.getSession(id);
+
+    if (!session) {
+      const dbSessions = await sm.getAllSessionsFromDb();
+      const sessionData = dbSessions.find(s => s.id === id);
+      if (!sessionData) {
+        res.status(404).json({ success: false, message: 'Session not found in database', status: 'disconnected' });
+        return;
+      }
+      await sm.connectSession(id, sessionData.name).catch(() => {});
+      session = sm.getSession(id);
+    }
 
     if (!session || !session.info.qr) {
       res.status(404).json({ success: false, message: 'No QR available', status: session ? session.info.status : 'disconnected' });

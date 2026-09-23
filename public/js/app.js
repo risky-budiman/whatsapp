@@ -152,6 +152,9 @@ function openModal(id) {
 }
 
 function closeModal(id) {
+  if (id === 'modal-qr') {
+    cleanupQrModal();
+  }
   const modal = document.getElementById(id);
   if (modal) modal.classList.remove('active');
 }
@@ -738,7 +741,22 @@ async function renderDashboard() {
 
 // ─── SESSIONS MANAGEMENT ───
 let qrEventSource = null;
+let qrPollInterval = null;
+let currentQrSessionId = null;
 let selectedSessions = new Set();
+
+function cleanupQrModal() {
+  if (qrPollInterval) {
+    clearInterval(qrPollInterval);
+    qrPollInterval = null;
+  }
+  if (qrEventSource) {
+    qrEventSource.close();
+    qrEventSource = null;
+  }
+  currentQrSessionId = null;
+  lastRenderedQr = null;
+}
 
 function updateSessionsBulkBar() {
   const bar = document.getElementById('sessions-bulk-bar');
@@ -991,8 +1009,10 @@ async function saveSessionEdit(e) {
 let lastRenderedQr = null;
 
 async function checkQrFallback(id, container, msg) {
+  if (currentQrSessionId !== id) return;
   try {
     const res = await wa_api.fetch(`/sessions/${id}/qr-image`);
+    if (currentQrSessionId !== id) return;
     if (res && res.success && res.qr) {
       if (res.qr !== lastRenderedQr) {
         lastRenderedQr = res.qr;
@@ -1011,8 +1031,7 @@ async function checkQrFallback(id, container, msg) {
         <span>Berhasil Terhubung!</span>
       </div>`;
       if (msg) msg.innerText = 'WhatsApp Berhasil Terhubung!';
-      if (qrPollInterval) clearInterval(qrPollInterval);
-      if (qrEventSource) qrEventSource.close();
+      cleanupQrModal();
       renderSessions();
       setTimeout(() => closeModal('modal-qr'), 1500);
     }
@@ -1022,6 +1041,9 @@ async function checkQrFallback(id, container, msg) {
 }
 
 async function openQrModal(id) {
+  cleanupQrModal();
+  currentQrSessionId = id;
+
   const container = document.getElementById('qr-image-container');
   const msg = document.getElementById('qr-status');
   
@@ -1029,28 +1051,27 @@ async function openQrModal(id) {
   if (msg) msg.innerText = 'Menghubungkan ke WhatsApp...';
   openModal('modal-qr');
 
-  if (qrPollInterval) clearInterval(qrPollInterval);
-  if (qrEventSource) qrEventSource.close();
-  lastRenderedQr = null;
-
   try {
-    // 1. Start SSE immediately so we catch the very first QR event
+    // 1. Trigger connection on backend first so session is guaranteed in memory
+    await wa_api.sessions.connect(id).catch(err => {
+      console.warn("Connect request note:", err.message);
+    });
+
+    if (currentQrSessionId !== id) return;
+
+    // 2. Start SSE stream for instant QR Code event
     const token = (typeof MEMORY_TOKEN !== 'undefined' && MEMORY_TOKEN) || localStorage.getItem('wa_token') || '';
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     qrEventSource = new EventSource(`/api/sessions/${id}/qr${tokenParam}`);
 
-    // 2. Fast immediate check + rapid initial polling (immediate 0ms, then every 800ms)
+    // 3. Fast immediate check + rapid initial polling fallback
     checkQrFallback(id, container, msg);
     qrPollInterval = setInterval(() => {
       checkQrFallback(id, container, msg);
-    }, 800);
-
-    // 3. Trigger connection on backend asynchronously (do NOT block SSE/polling)
-    wa_api.sessions.connect(id).catch(err => {
-      console.warn("Connect request note:", err.message);
-    });
+    }, 1000);
     
     qrEventSource.onmessage = (event) => {
+      if (currentQrSessionId !== id) return;
       try {
         const data = JSON.parse(event.data);
         const now = new Date().toLocaleTimeString();
@@ -1073,17 +1094,15 @@ async function openQrModal(id) {
           </div>`;
           if (msg) msg.innerText = `Terhubung ke: ${data.phone_number || 'WhatsApp'}`;
           
-          if (qrPollInterval) clearInterval(qrPollInterval);
-          if (qrEventSource) qrEventSource.close();
+          cleanupQrModal();
           renderSessions();
           setTimeout(() => closeModal('modal-qr'), 1500);
         } else if (data.type === 'sync_progress') {
           if (msg) msg.innerText = `Sinkronisasi: ${data.message}`;
           if (data.status === 'completed') {
             setTimeout(() => {
+              cleanupQrModal();
               closeModal('modal-qr');
-              if (qrPollInterval) clearInterval(qrPollInterval);
-              if (qrEventSource) qrEventSource.close();
               renderContacts();
               renderGroups();
             }, 2000);
@@ -1095,8 +1114,8 @@ async function openQrModal(id) {
     };
 
     qrEventSource.onerror = () => {
-      // Fallback polling is already running, so user won't get stuck
-      console.warn("SSE stream issue; falling back to periodic QR polling.");
+      // Fallback polling is active, so user won't get stuck
+      console.warn("SSE stream issue; relying on fallback QR polling.");
     };
 
   } catch (err) {
@@ -1110,7 +1129,7 @@ async function openQrModal(id) {
       </div>
     `;
     if (msg) msg.innerText = 'Gagal memulai koneksi.';
-    if (qrPollInterval) clearInterval(qrPollInterval);
+    cleanupQrModal();
   }
 }
 
